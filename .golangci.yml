@@ -1,0 +1,16 @@
+version: "2"
+
+linters:
+  settings:
+    errcheck:
+      # Writes to the CLI's own stdout/stderr. There is nothing to do with the
+      # error — reporting a failed write to the stream that just failed is
+      # circular, and the process exit code already carries the outcome.
+      #
+      # This is the ONLY errcheck exclusion. Everything else stays on
+      # deliberately: an unchecked Close on a file the tool wrote is a real
+      # defect class (the cache writes files), and errcheck is what catches it.
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
