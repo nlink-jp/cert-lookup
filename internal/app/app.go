@@ -22,6 +22,7 @@ import (
 	"github.com/nlink-jp/cert-lookup/internal/domain"
 	"github.com/nlink-jp/cert-lookup/internal/engine"
 	"github.com/nlink-jp/cert-lookup/internal/guard"
+	"github.com/nlink-jp/cert-lookup/internal/mcp"
 	"github.com/nlink-jp/cert-lookup/internal/sslmate"
 	"github.com/nlink-jp/cert-lookup/internal/validin"
 )
@@ -44,8 +45,7 @@ func Run(args []string, version string) int {
 
 func run(args []string, version string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) > 0 && args[0] == "mcp" {
-		fmt.Fprintln(stderr, "error: the MCP server is not built yet (development Phase 2)")
-		return exitUsage
+		return runMCP(args[1:], version, stdin, stdout, stderr)
 	}
 
 	fs := flag.NewFlagSet("cert-lookup", flag.ContinueOnError)
@@ -238,6 +238,41 @@ func parseInterleaved(fs *flag.FlagSet, args []string) ([]string, error) {
 	}
 }
 
+// runMCP starts the stdio MCP server. Diagnostics go to stderr only: stdout
+// belongs to the JSON-RPC stream. It starts without any key, so that get_usage
+// and cache_status answer before the operator has configured anything.
+func runMCP(args []string, version string, stdin io.Reader, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("cert-lookup mcp", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	var (
+		timeout    = fs.Duration("timeout", 0, "upstream timeout (e.g. 30s)")
+		configPath = fs.String("config", "", "config file path")
+	)
+	if err := fs.Parse(args); err != nil {
+		return exitUsage
+	}
+	if fs.NArg() > 0 {
+		fmt.Fprintf(stderr, "error: mcp takes no positional arguments (got %q)\n", fs.Arg(0))
+		return exitUsage
+	}
+	cfg, err := config.Load(*configPath, *timeout)
+	if err != nil {
+		fmt.Fprintf(stderr, "error: %v\n", err)
+		return exitUsage
+	}
+	warn(stderr, cfg)
+	opts := mcp.Options{Config: cfg, Engine: NewEngine(cfg, version), Version: version}
+	if cfg.HasValidin() {
+		vc := &validin.Client{HTTP: keyClient(cfg), BaseURL: cfg.ValidinBaseURL, APIKey: cfg.ValidinKey, UserAgent: "cert-lookup/" + version}
+		opts.ValidinQuota = vc.Usage
+	}
+	if err := mcp.Serve(opts, stdin, stdout); err != nil {
+		fmt.Fprintf(stderr, "error: mcp: %v\n", err)
+		return exitError
+	}
+	return exitOK
+}
+
 func warn(w io.Writer, cfg *config.Config) {
 	for _, m := range cfg.Warnings {
 		fmt.Fprintf(w, "warning: %s\n", m)
@@ -275,6 +310,7 @@ Usage:
   cert-lookup [flags] <domain> [domain...]   # up to 20; flags may come anywhere
   cert-lookup [flags]                        # domains from stdin, one per line
   cert-lookup --clear-cache                  # delete every cache entry
+  cert-lookup mcp [--config <path>] [--timeout <dur>]  # local MCP server (stdio)
 
 Flags:
   --subdomains      include certificates for subdomains (SSLMate allows 10 such queries an hour)

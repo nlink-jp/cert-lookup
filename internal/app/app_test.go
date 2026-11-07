@@ -205,10 +205,36 @@ func TestCacheServesTheRepeat(t *testing.T) {
 	}
 }
 
-func TestMCPIsNotBuiltYet(t *testing.T) {
+func TestMCPServesOverStdio(t *testing.T) {
+	sHits, _ := env(t, http.StatusOK)
+	in := strings.Join([]string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"lookup_certs","arguments":{"domains":["example.com"]}}}`,
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"cache_status","arguments":{}}}`,
+	}, "\n")
+	var out, errb bytes.Buffer
+	code := run([]string{"mcp"}, "t", strings.NewReader(in), &out, &errb)
+	if code != exitOK {
+		t.Fatalf("code %d stderr %s", code, errb.String())
+	}
+	got := out.String()
+	for _, want := range []string{`"name":"cert-lookup"`, `related.example`, `single_host`, `daily`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %s in %s", want, got)
+		}
+	}
+	if sHits.Load() != 2 {
+		t.Fatalf("sslmate hits %d", sHits.Load())
+	}
+	if strings.Contains(got, `"sk"`) || strings.Contains(got, `"vk"`) {
+		t.Fatal("a key reached the MCP stream")
+	}
+}
+
+func TestMCPRefusesPositionals(t *testing.T) {
 	env(t, http.StatusOK)
-	if code, _, errs := runCLI("mcp"); code != exitUsage || !strings.Contains(errs, "not built yet") {
-		t.Fatalf("code %d err %s", code, errs)
+	if code, _, _ := runCLI("mcp", "extra"); code != exitUsage {
+		t.Fatalf("code %d", code)
 	}
 }
 
