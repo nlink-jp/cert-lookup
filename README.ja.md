@@ -12,13 +12,15 @@ cert-lookup は 2 つの CT 索引を重ねて 1 つの答えにします。
 外へ出るのは照会したドメイン名だけで、この 2 社に届きます。調べる相手には何も届きません
 （DNS の問い合わせもしません）。組織自身の業務だけに使ってください。
 
-> 状態: 開発中（未リリース）。CLI と MCP サーバーが動きます。
-
 [English README](README.md)
 
 ## インストール
 
-ソースからビルドします（Go 1.25 以上）。
+```bash
+brew install nlink-jp/tap/cert-lookup   # prebuilt、Developer ID 署名 + notarize 済、arm64 macOS
+```
+
+またはリリースアーカイブをダウンロード、もしくはソースからビルド（Go 1.25 以上）：
 
 ```bash
 make build   # → dist/cert-lookup

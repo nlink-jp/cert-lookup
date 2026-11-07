@@ -12,7 +12,7 @@ Module path: `github.com/nlink-jp/cert-lookup`. Design authority:
 [docs/ja/cert-lookup-rfp.ja.md](docs/ja/cert-lookup-rfp.ja.md) (English beside it);
 measurements in [docs/ja/cert-lookup-phase0.ja.md](docs/ja/cert-lookup-phase0.ja.md).
 
-**Status: in development (Phase 1 CLI and Phase 2 MCP done; Phase 3: e2e, review, release).**
+**Status: released (versions in CHANGELOG.md and `git tag`; Homebrew `nlink-jp/tap/cert-lookup`).**
 
 ## Build / test
 
@@ -21,6 +21,8 @@ make build   # → dist/cert-lookup (NEVER `go build` directly)
 make test    # go test -race -cover ./... then go vet -tags e2e ./...  (offline)
 make lint    # golangci-lint — before every commit
 make check   # lint + test + build-all
+make e2e     # live; keys from CERT_LOOKUP_SSLMATE_API_KEY / CERT_LOOKUP_VALIDIN_API_KEY
+             # (~6 SSLMate queries and 1 Validin query a run; history skips without its key)
 ```
 
 Go 1.25+. One dependency, the organization's TOML decoder `github.com/nlink-jp/toml`
@@ -46,6 +48,8 @@ internal/app/        CLI shell: flags (anywhere), validation, text/JSON, --clear
 internal/mcp/        Zero-dep stdio JSON-RPC 2.0 server: lookup_certs / cache_status / get_usage;
                      the 128 KB ceiling (oldest issuances out first, counted per domain);
                      usage.md pinned to tools, arguments, codes and result values by meta-tests
+e2e/                 Live suite (build tag "e2e"): example.com, a public suffix, a bad key, a
+                     closed port, one Validin history query, the built binary via CLI and MCP
 docs/{en,ja}/        RFP and the Phase 0 record
 ```
 

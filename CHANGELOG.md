@@ -6,6 +6,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-07
+
+First release.
+
 ### Added
 
 - Project scaffold: the RFP (en/ja) with the Phase 0 measurements, the strict
@@ -27,3 +31,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   domain), `cache_status` (keys, cache, SSLMate's allowance as last observed,
   Validin's remaining queries) and `get_usage`, with usage.md pinned to the
   tools, arguments, codes and result values by meta-tests.
+- A live e2e suite (`make e2e`): about six SSLMate queries and one Validin
+  query a run.
+
+### Fixed (before release, from the independent review)
+
+- An SSLMate allowance block no longer outlives its reason: it lasts until
+  Retry-After passes, or for the call when there is none (it had lasted the
+  MCP server's lifetime). A walk the allowance cut short is degraded and not
+  cached; a refused key stops that source for the call; Validin's sample is
+  never offered as the latest issuance when SSLMate failed.

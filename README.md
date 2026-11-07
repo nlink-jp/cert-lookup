@@ -13,13 +13,15 @@ cert-lookup layers two CT indexes into one answer:
 Only the domain names you look up reach those two services. Nothing reaches the domain
 itself — not even a DNS query. For your organization's own work only.
 
-> Status: in development (not yet released). The CLI and the MCP server work.
-
 [日本語版 README](README.ja.md)
 
 ## Install
 
-Build from source (Go 1.25+):
+```bash
+brew install nlink-jp/tap/cert-lookup   # prebuilt, Developer ID signed + notarized, arm64 macOS
+```
+
+Or download a release archive, or build from source (Go 1.25+):
 
 ```bash
 make build   # → dist/cert-lookup
