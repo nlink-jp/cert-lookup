@@ -99,7 +99,7 @@ error (exit 2).
 - **A page holds 100 issuances, and every page counts as one query, empty pages included** (Phase 0).
   The end is confirmed with an empty page as documented (treating a page under 100 as the last is not
   documented and is not used). A domain with N issuances therefore costs ceil(N/100)+1 queries. The
-  page cap is **5 pages (500 issuances) for a single host and 3 pages (300) with subdomains**, and the
+  page cap is **5 pages (500 issuances) for a single host and 3 pages (300) with subdomains** (if the request that confirms the end returns issuances, they are kept — they were paid for — and the walk is still marked cut: at most 600 / 400; made explicit after the pre-release review found the drift), and the
   walk stops earlier when the remaining allowance reaches 0. Large domains are not fetched whole — one
   page is 540-608 KB (google.com, Phase 0) and would not fit an MCP response anyway
 - Validin: `GET https://app.validin.com/api/axon/domain/certificates/<d>?wildcard=<subdomains>&limit=250&lookback=1095&time_format=unix`.
@@ -413,3 +413,11 @@ doh-lookup.
   without a window, and large domains miss whole months even with one — **the owner chose "proceed,
   stating it is a sample"**. SSLMate's last page is confirmed with an empty page as documented
   (ADR-023: no undocumented shortcut; one more query per domain)
+- **Pre-release independent review (2026-11-07)**: all 11 findings adopted — the allowance block
+  lived for the MCP server's lifetime (now it expires with Retry-After, or ends with the call when
+  there is none); an allowance-cut walk is neither cached nor counted as complete; Validin's sample
+  is not offered as the latest when SSLMate failed; a zero remainder on the final empty page stops
+  the call too; a refused key stops that source for the call; the page-cap documents match the
+  code; the merge registers a Validin certificate's own tuple; absent Validin times are not 1970
+  and fingerprints are hex-checked; an over-long raw list is too_many_domains; the summaries'
+  lists go when summaries alone are over the ceiling, with room for the envelope

@@ -60,15 +60,18 @@ docs/{en,ja}/        RFP and the Phase 0 record
 
 - **SSLMate returns oldest first, 100 to a page, and every page counts** (an empty one too).
   The walk ends only on an empty page (the documented signal), within 5 pages for a single
-  host and 3 with subdomains; a cut sets `truncated: "newest_missing"` and hides the latest.
+  host and 3 with subdomains, plus one request to confirm the end whose issuances are kept
+  (at most 600 / 400); a cut sets `truncated: "newest_missing"` and hides the latest.
 - **SSLMate answers a public suffix (`com`, `co.jp`) with an empty list.** Empty is never
   worded as "nothing issued".
 - **SSLMate's `bad_credentials` message quotes the leading part of the key.** No upstream
   message is passed through; `internal/upstream` builds our own.
 - **SSLMate's `Link` header drops `/v1`.** Pages are built from `after=`.
 - **SSLMate meters single-host and subdomain queries apart** (100 / 10 an hour); a 429
-  carries `Retry-After` seconds and the allowance refills gradually. The engine stops a kind
-  at a zero remainder or a 429 and sends no more of it in that call.
+  carries `Retry-After` seconds and the allowance refills gradually. The engine blocks a kind
+  until Retry-After passes (across calls — the MCP server lives for days, so blocks expire), or
+  for the rest of the call after a zero remainder; an allowance-cut walk is degraded and not
+  cached; a refused key stops that source for the call.
 - **Validin without a window returns only a recent subset**; with one, large domains still
   miss whole months and `limited` stays false. Always `lookback=1095`; history is a sample.
 - **Validin's single-host query returns no covering wildcard certificates**, has no serial
