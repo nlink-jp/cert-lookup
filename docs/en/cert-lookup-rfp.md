@@ -165,9 +165,11 @@ recorded them (measured: 18 records → 4 issuances).
 - `truncated` — `"newest_missing"` when SSLMate's walk hit the page cap. `notes` (one source failed,
   history not requested, Validin's history is a sample, a single host's history excludes wildcard
   certificates, an empty answer does not mean no issuance)
-- `error` — a failure of that domain only (`rate_limited`, `timeout`, `upstream_error`).
-  `rate_limited` carries upstream's `Retry-After` as `retry_after_seconds`. Kept apart from failures
-  that stop the whole call (below)
+- A failure of that domain only (`rate_limited`, `timeout`, `upstream_error`, `invalid_api_key`) is
+  shown on the source in `sources` as `state: "failed"` with a `code` and our own `message`;
+  `rate_limited` carries upstream's `Retry-After` as `retry_after_seconds` (Phase 1: failures happen per
+  source, so there is no single `error` per domain; the source states carry them). Kept apart from
+  failures that stop the whole call (below)
 
 **Failures**: when one source fails, that domain is `degraded: true` and the answer rests on what
 remains. **An empty history is never reported as "no issuance"** — only as not visible within what
@@ -200,8 +202,6 @@ third-party string has a length cap (§3).
 syntax error reports **line and column only**, never the value). A file looser than 0600 draws a warning.
 
 ```toml
-# timeout = "30s"   # keep above the first table (after [validin] it would be validin.timeout and refused)
-
 [sslmate]
 api_key  = "..."   # required
 # base_url = "https://api.certspotter.com"
@@ -209,7 +209,17 @@ api_key  = "..."   # required
 [validin]
 api_key  = "..."   # optional; without it --history returns history_unavailable
 # base_url = "https://app.validin.com"
+
+# [cache]
+# dir = "~/.cache/cert-lookup"
+
+# [network]
+# timeout_seconds = 30
 ```
+
+(In Phase 1 the timeout and the cache location moved to `[network] timeout_seconds` and `[cache] dir`,
+as in vpn-lookup. The top-level `timeout` is gone — and with it the review finding that, written in the
+wrong place, it became another table's key.)
 
 Environment variables override the file (named as in vpn-lookup): `CERT_LOOKUP_SSLMATE_API_KEY`,
 `CERT_LOOKUP_SSLMATE_BASE_URL`, `CERT_LOOKUP_VALIDIN_API_KEY`, `CERT_LOOKUP_VALIDIN_BASE_URL`,

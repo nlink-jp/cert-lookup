@@ -1,0 +1,33 @@
+# cert-lookup configuration
+# Copy to ~/.config/cert-lookup/config.toml (or $XDG_CONFIG_HOME/cert-lookup/)
+# and chmod 600 — it holds API keys. An unknown key is an error, not ignored.
+# Quote every key: an unquoted value is a TOML syntax error.
+#
+# For your organization's own work only (Validin terms §3(e): "solely its own
+# internal security purposes"; not for investigations done for clients).
+
+[sslmate]
+# https://sslmate.com/ct_search_api/ — free Small plan: 100 single-host and 10
+# subdomain queries an hour. Required: keyless use is for personal or
+# evaluation purposes only (SSLMate's API reference).
+#api_key = "YOUR-SSLMATE-KEY"
+# Endpoint override, for tests only: https, or plain http to a loopback host.
+#base_url = "https://api.certspotter.com"
+
+[validin]
+# https://www.validin.com — free Community account: 10 queries a day, 50 a
+# month. Optional; only --history uses it. A Validin login belongs to one
+# named person (§3(c)); treat the key as theirs.
+#api_key = "YOUR-VALIDIN-KEY"
+# Endpoint override, for tests only.
+#base_url = "https://app.validin.com"
+
+[cache]
+# Cache directory (default $XDG_CACHE_HOME/cert-lookup or ~/.cache/cert-lookup).
+# SSLMate answers are kept 4 hours (15 minutes when empty), Validin answers
+# 7 days; neither is configurable. `cert-lookup --clear-cache` deletes them
+# (Validin §4(c) requires deleting output when the agreement ends).
+#dir = "~/.cache/cert-lookup"
+
+[network]
+#timeout_seconds = 30

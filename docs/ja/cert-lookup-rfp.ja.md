@@ -150,8 +150,10 @@ SSLMate のキーが無くても MCP サーバーは起動し、`cache_status` �
 - `truncated` — SSLMate がページの上限で打ち切ったとき `"newest_missing"`。`notes`（片方が失敗したとき、
   履歴を頼んでいないとき、Validin の履歴が標本であること、単一ホストの履歴がワイルドカード証明書を含まないこと、
   空の答えが発行の不在を意味しないこと）
-- `error` — そのドメインだけの失敗（`rate_limited`・`timeout`・`upstream_error`）。`rate_limited` には
-  上流の `Retry-After` の秒数を `retry_after_seconds` として添える。呼び出し全体を止める失敗とは分ける（下記）
+- ドメインだけの失敗（`rate_limited`・`timeout`・`upstream_error`・`invalid_api_key`）は、`sources` の各ソースに
+  `state: "failed"`・`code`・自前の `message` で示し、`rate_limited` には上流の `Retry-After` の秒数を
+  `retry_after_seconds` として添える（段階 1: 失敗はソースごとに起きるので、ドメインに 1 つの `error` は置かず
+  ソースの状態に持たせた）。呼び出し全体を止める失敗とは分ける（下記）
 
 **失敗の扱い**: 片方のソースが失敗したら、そのドメインは `degraded: true` とし、ある分だけで答える。
 **履歴が空でも「発行が無かった」とは書かない** — Validin の索引にある範囲で見えない、とだけ言う
@@ -182,8 +184,6 @@ SSLMate のキーが無くても MCP サーバーは起動し、`cache_status` �
 **行と桁だけ**を出し値を引用しない）。ファイルが 0600 より緩ければ警告する。
 
 ```toml
-# timeout = "30s"   # 表より前に書く（[validin] の後ろに書くと validin.timeout になり拒否される）
-
 [sslmate]
 api_key  = "..."   # 必須
 # base_url = "https://api.certspotter.com"
@@ -191,7 +191,16 @@ api_key  = "..."   # 必須
 [validin]
 api_key  = "..."   # 任意。無ければ --history は history_unavailable
 # base_url = "https://app.validin.com"
+
+# [cache]
+# dir = "~/.cache/cert-lookup"
+
+# [network]
+# timeout_seconds = 30
 ```
+
+（段階 1 で、時間切れとキャッシュの置き場所は vpn-lookup と同じ `[network] timeout_seconds`・`[cache] dir` にした。
+表の外に書く `timeout` はやめた — 書く位置を誤ると別の表のキーになる、という独立検証の指摘も同時に消える。）
 
 環境変数は設定ファイルより優先する（vpn-lookup と同じ命名）: `CERT_LOOKUP_SSLMATE_API_KEY`、
 `CERT_LOOKUP_SSLMATE_BASE_URL`、`CERT_LOOKUP_VALIDIN_API_KEY`、`CERT_LOOKUP_VALIDIN_BASE_URL`、
