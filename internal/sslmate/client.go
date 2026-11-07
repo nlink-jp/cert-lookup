@@ -303,7 +303,7 @@ func isHex64(s string) bool {
 	}
 	for i := 0; i < len(s); i++ {
 		c := s[i] | 0x20
-		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f') {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
 			return false
 		}
 	}

@@ -57,7 +57,7 @@ func (e *Error) Error() string {
 func MachineCode(s string) string {
 	s = guard.Cap(s, 40)
 	for _, r := range s {
-		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_') {
+		if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '_' {
 			return ""
 		}
 	}

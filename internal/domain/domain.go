@@ -95,7 +95,7 @@ func badLabel(l string) string {
 	}
 	for i := 0; i < len(l); i++ {
 		c := l[i]
-		if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-') {
+		if (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '-' {
 			return fmt.Sprintf("it holds %q; a label is letters, digits and hyphens", string(c))
 		}
 	}
