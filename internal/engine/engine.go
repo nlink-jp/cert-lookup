@@ -98,7 +98,13 @@ type Engine struct {
 
 	lastSSLMate time.Time
 	observed    map[string]Observed
-	exhausted   map[string]int // kind -> Retry-After seconds (0 = unknown)
+	// blocked holds SSLMate query kinds whose allowance is used up: until the
+	// time Retry-After named, or — zero time — for the rest of the current call
+	// (a zero remainder gives no time). Entries expire; the server process
+	// lives for days and must not stay blocked.
+	blocked map[string]time.Time
+	// refused holds sources whose key was rejected in the current call.
+	refused map[string]bool
 }
 
 // Options are one call's switches.
@@ -197,6 +203,7 @@ func kind(sub bool) string {
 // Lookup answers for domains already validated and canonical (domain.ParseBatch).
 func (e *Engine) Lookup(domains []string, o Options) (*Report, error) {
 	rep := &Report{}
+	e.startCall()
 	if o.History {
 		if e.Validin == nil {
 			return nil, &CallError{Code: CodeHistoryUnavailable, Message: "history was requested but no Validin key is configured (set [validin] api_key or CERT_LOOKUP_VALIDIN_API_KEY)"}
@@ -226,6 +233,19 @@ func (e *Engine) Lookup(domains []string, o Options) (*Report, error) {
 		rep.Results = append(rep.Results, r)
 	}
 	return rep, nil
+}
+
+// startCall forgets what only held for the previous call: blocks without a
+// Retry-After, blocks whose Retry-After has passed, and refused keys (the
+// operator may have fixed the key and the server is still running).
+func (e *Engine) startCall() {
+	now := e.now()
+	for k, until := range e.blocked {
+		if until.IsZero() || !now.Before(until) {
+			delete(e.blocked, k)
+		}
+	}
+	e.refused = nil
 }
 
 func quotaMessage(rem *validin.Remaining, need int) string {
@@ -271,11 +291,16 @@ func (e *Engine) lookupOne(d string, o Options) DomainResult {
 	}
 
 	all := issuance.Merge(sIss, vRec, e.now())
-	r.Summary = issuance.Summarize(all, d, r.Truncated != "")
+	// Without SSLMate's part the newest issuances are exactly what is missing:
+	// Validin's sample must not be read as the latest.
+	newestMissing := r.Truncated != "" || r.Sources.SSLMate.State == StateFailed
+	r.Summary = issuance.Summarize(all, d, newestMissing)
 	for i := range all {
 		r.Issuances = append(r.Issuances, all[i].Shown())
 	}
-	r.Degraded = r.Sources.SSLMate.State == StateFailed || r.Sources.Validin.State == StateFailed
+	// A walk the allowance cut short is partial for a passing reason: degraded,
+	// like a failure, so the CLI does not exit 0 on it.
+	r.Degraded = r.Sources.SSLMate.State == StateFailed || r.Sources.Validin.State == StateFailed || (w != nil && w.Exhausted)
 	r.Notes = notes(r, w, o)
 	return r
 }
@@ -284,15 +309,15 @@ func history(a *validin.Answer) *History {
 	h := &History{Records: len(a.Records), Sample: true}
 	for _, rec := range a.Records {
 		from := rec.FirstSeen
-		if !rec.LoggedAt.IsZero() && rec.LoggedAt.Before(from) {
+		if !rec.LoggedAt.IsZero() && (from.IsZero() || rec.LoggedAt.Before(from)) {
 			from = rec.LoggedAt
 		}
-		if h.ObservedFrom == nil || from.Before(*h.ObservedFrom) {
+		if !from.IsZero() && (h.ObservedFrom == nil || from.Before(*h.ObservedFrom)) {
 			t := from
 			h.ObservedFrom = &t
 		}
 		to := rec.LastSeen
-		if h.ObservedTo == nil || to.After(*h.ObservedTo) {
+		if !to.IsZero() && (h.ObservedTo == nil || to.After(*h.ObservedTo)) {
 			t := to
 			h.ObservedTo = &t
 		}
@@ -303,7 +328,7 @@ func history(a *validin.Answer) *History {
 func notes(r DomainResult, w *walk, o Options) []string {
 	var n []string
 	if r.Sources.SSLMate.State == StateFailed {
-		n = append(n, "SSLMate failed ("+r.Sources.SSLMate.Code+"): currently valid certificates and revocation are missing from this answer.")
+		n = append(n, "SSLMate failed ("+r.Sources.SSLMate.Code+"): currently valid certificates and revocation are missing from this answer, so the latest issuance is not reported.")
 	}
 	if r.Sources.Validin.State == StateFailed {
 		n = append(n, "Validin failed ("+r.Sources.Validin.Code+"): past issuances are missing from this answer.")
@@ -314,7 +339,7 @@ func notes(r DomainResult, w *walk, o Options) []string {
 	if r.Truncated != "" {
 		msg := fmt.Sprintf("SSLMate returns the oldest issuances first and the walk stopped after %d pages", w.Pages)
 		if w.Exhausted {
-			msg += " because the query allowance ran out"
+			msg += " because the query allowance ran out (this partial answer is not cached; ask again once it refills)"
 		}
 		n = append(n, msg+"; the newest issuances may be missing, so the latest issuance is not reported.")
 	}
@@ -359,8 +384,16 @@ func (e *Engine) sslmate(d string, o Options) (*walk, SourceState) {
 		}
 	}
 	k := kind(o.Subdomains)
-	if ra, gone := e.exhausted[k]; gone {
-		return nil, SourceState{State: StateFailed, Code: upstream.CodeRateLimited, Message: "SSLMate's allowance for this kind of query ran out earlier in this call; not sent", RetryAfterSeconds: ra}
+	if e.refused[sourceSSLMate] {
+		return nil, SourceState{State: StateFailed, Code: upstream.CodeInvalidAPIKey, Message: "SSLMate refused the key earlier in this call; not sent (check [sslmate] api_key)"}
+	}
+	if until, ok := e.blocked[k]; ok {
+		st := SourceState{State: StateFailed, Code: upstream.CodeRateLimited, Message: "SSLMate's allowance for this kind of query ran out earlier in this call; not sent"}
+		if !until.IsZero() {
+			st.Message = "SSLMate's allowance for this kind of query is used up until its Retry-After passes; not sent"
+			st.RetryAfterSeconds = int((until.Sub(e.now()) + time.Second - 1) / time.Second)
+		}
+		return nil, st
 	}
 	w, err := e.walkSSLMate(d, o.Subdomains)
 	if err != nil {
@@ -368,25 +401,53 @@ func (e *Engine) sslmate(d string, o Options) (*walk, SourceState) {
 		var ue *upstream.Error
 		if errors.As(err, &ue) {
 			st.Code, st.RetryAfterSeconds = ue.Code, ue.RetryAfter
-			if ue.Code == upstream.CodeRateLimited {
-				e.markExhausted(k, ue.RetryAfter)
+			switch ue.Code {
+			case upstream.CodeRateLimited:
+				e.block(k, ue.RetryAfter)
+			case upstream.CodeInvalidAPIKey:
+				e.refuse(sourceSSLMate)
 			}
 		}
 		return nil, st
 	}
-	e.put(key, w)
+	if !w.Exhausted {
+		// A walk cut short by the allowance is partial for a passing reason;
+		// caching it would serve the cut answer for hours after a refill.
+		e.put(key, w)
+	}
 	return w, SourceState{State: StateOK}
 }
 
-func (e *Engine) markExhausted(k string, retryAfter int) {
-	if e.exhausted == nil {
-		e.exhausted = map[string]int{}
+const (
+	sourceSSLMate = "sslmate"
+	sourceValidin = "validin"
+)
+
+// block stops a query kind: until Retry-After passes when SSLMate gave one,
+// otherwise for the rest of the current call.
+func (e *Engine) block(k string, retryAfter int) {
+	if e.blocked == nil {
+		e.blocked = map[string]time.Time{}
 	}
-	e.exhausted[k] = retryAfter
+	var until time.Time
+	if retryAfter > 0 {
+		until = e.now().Add(time.Duration(retryAfter) * time.Second)
+	}
+	e.blocked[k] = until
+}
+
+func (e *Engine) refuse(src string) {
+	if e.refused == nil {
+		e.refused = map[string]bool{}
+	}
+	e.refused[src] = true
 }
 
 // walkSSLMate follows pages until an empty one (the documented end), the page
-// cap, or a zero remaining allowance.
+// cap, or a zero remaining allowance. The cap counts pages with issuances; one
+// more request is allowed to confirm the end, and if that one holds issuances
+// they are kept (they were paid for) and the walk is still marked cut — so at
+// most (cap+1) pages of 100 come back.
 func (e *Engine) walkSSLMate(d string, sub bool) (*walk, error) {
 	maxPages := MaxPagesHost
 	if sub {
@@ -401,6 +462,12 @@ func (e *Engine) walkSSLMate(d string, sub bool) (*walk, error) {
 			return nil, err
 		}
 		e.observe(kind(sub), p.Allowance)
+		// Unknown (-1) is not exhausted; zero is. The rest of the call sends no
+		// more queries of this kind — also when the page that used the last
+		// query was the empty one that completed this walk.
+		if p.Allowance.Remaining == 0 {
+			e.block(kind(sub), 0)
+		}
 		if len(p.Issuances) == 0 {
 			w.Complete = true
 			return w, nil
@@ -409,10 +476,7 @@ func (e *Engine) walkSSLMate(d string, sub bool) (*walk, error) {
 		w.Issuances = append(w.Issuances, p.Issuances...)
 		after = p.Issuances[len(p.Issuances)-1].ID
 		if p.Allowance.Remaining == 0 {
-			// Unknown (-1) is not exhausted; zero is. The walk stops short and
-			// the rest of the call sends no more queries of this kind.
 			w.Exhausted = true
-			e.markExhausted(kind(sub), 0)
 			return w, nil
 		}
 	}
@@ -460,12 +524,18 @@ func (e *Engine) validin(d string, o Options) (*validin.Answer, SourceState) {
 			}
 		}
 	}
+	if e.refused[sourceValidin] {
+		return nil, SourceState{State: StateFailed, Code: upstream.CodeInvalidAPIKey, Message: "Validin refused the key earlier in this call; not sent (check [validin] api_key)"}
+	}
 	a, err := e.Validin.Certificates(d, o.Subdomains)
 	if err != nil {
 		st := SourceState{State: StateFailed, Code: upstream.CodeUpstream, Message: err.Error()}
 		var ue *upstream.Error
 		if errors.As(err, &ue) {
 			st.Code, st.RetryAfterSeconds = ue.Code, ue.RetryAfter
+			if ue.Code == upstream.CodeInvalidAPIKey {
+				e.refuse(sourceValidin)
+			}
 		}
 		return nil, st
 	}

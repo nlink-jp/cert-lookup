@@ -151,8 +151,8 @@ func TestZeroAllowanceStopsTheCall(t *testing.T) {
 	if a.Truncated != TruncatedNewestMissing || !strings.Contains(strings.Join(a.Notes, " "), "allowance ran out") {
 		t.Fatalf("a = %q %v", a.Truncated, a.Notes)
 	}
-	if b.Sources.SSLMate.Code != upstream.CodeRateLimited || !b.Degraded || rep.Degraded != 1 {
-		t.Fatalf("b = %+v, degraded %d", b.Sources.SSLMate, rep.Degraded)
+	if b.Sources.SSLMate.Code != upstream.CodeRateLimited || !b.Degraded || !a.Degraded || rep.Degraded != 2 {
+		t.Fatalf("b = %+v, degraded %d; a walk the allowance cut short is degraded too", b.Sources.SSLMate, rep.Degraded)
 	}
 	if obs := e.Allowances()[KindHost]; obs.Remaining != 0 || obs.ObservedAt.IsZero() || obs.ObservedAt.Location() != time.UTC {
 		t.Fatalf("observed = %+v (UTC, like every other timestamp)", obs)
@@ -327,5 +327,114 @@ func TestScopeSeparatesCaches(t *testing.T) {
 	_, _ = e.Lookup([]string{"example.com"}, Options{})
 	if len(s.queries) == n {
 		t.Fatal("an answer cached under another key or endpoint was served")
+	}
+}
+
+// Review finding 1: a block must not outlive its reason. A 429's Retry-After
+// holds across calls until it passes; a zero remainder holds for one call.
+func TestBlocksExpire(t *testing.T) {
+	rl := &upstream.Error{Source: "SSLMate", Code: upstream.CodeRateLimited, Status: 429, RetryAfter: 264, Detail: "used up"}
+	s := &fakeSSLMate{count: map[string]int{"b.example": 1}, remaining: -1, fail: map[string]error{"a.example": rl}}
+	e, clk := newEngine(t, s, nil)
+	_, _ = e.Lookup([]string{"a.example"}, Options{})
+	rep, _ := e.Lookup([]string{"b.example"}, Options{})
+	if len(s.queries) != 1 || rep.Results[0].Sources.SSLMate.Code != upstream.CodeRateLimited {
+		t.Fatalf("within Retry-After a second call must not send: queries %d", len(s.queries))
+	}
+	if ra := rep.Results[0].Sources.SSLMate.RetryAfterSeconds; ra <= 0 || ra > 264 {
+		t.Fatalf("retry_after_seconds = %d; want what is left of 264", ra)
+	}
+	clk.Advance(265 * time.Second)
+	rep, _ = e.Lookup([]string{"b.example"}, Options{})
+	if rep.Results[0].Sources.SSLMate.State != StateOK {
+		t.Fatalf("after Retry-After the kind must be usable again: %+v", rep.Results[0].Sources.SSLMate)
+	}
+
+	s2 := &fakeSSLMate{count: map[string]int{"a.example": 250, "b.example": 1}, remaining: 1}
+	e2, _ := newEngine(t, s2, nil)
+	_, _ = e2.Lookup([]string{"a.example"}, Options{})
+	s2.remaining = 50
+	rep, _ = e2.Lookup([]string{"b.example"}, Options{})
+	if rep.Results[0].Sources.SSLMate.State != StateOK {
+		t.Fatalf("a zero remainder blocks only the call it happened in: %+v", rep.Results[0].Sources.SSLMate)
+	}
+}
+
+// Review finding 2: a walk cut by the allowance is not cached.
+func TestAllowanceCutWalkIsNotCached(t *testing.T) {
+	s := &fakeSSLMate{count: map[string]int{"a.example": 250}, remaining: 1}
+	e, _ := newEngine(t, s, nil)
+	_, _ = e.Lookup([]string{"a.example"}, Options{})
+	n := len(s.queries)
+	s.remaining = 50
+	rep, _ := e.Lookup([]string{"a.example"}, Options{})
+	if len(s.queries) == n || rep.Results[0].Sources.SSLMate.FromCache || rep.Results[0].Truncated != "" {
+		t.Fatalf("the cut answer was served again: %+v truncated %q", rep.Results[0].Sources.SSLMate, rep.Results[0].Truncated)
+	}
+}
+
+// Review finding 3: when SSLMate failed, Validin's sample must not supply the
+// latest issuance.
+func TestNoLatestWhenSSLMateFailed(t *testing.T) {
+	old := validin.Record{CommonName: "example.com", Issuer: validin.Issuer{O: "Old CA"}, NotBefore: time.Date(2025, 3, 1, 0, 0, 0, 0, time.UTC), NotAfter: time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC), FingerprintSHA256: strings.Repeat("e", 64)}
+	s := &fakeSSLMate{remaining: -1, fail: map[string]error{"example.com": &upstream.Error{Source: "SSLMate", Code: upstream.CodeUpstream, Detail: "x"}}}
+	v := &fakeValidin{records: map[string][]validin.Record{"example.com": {old}}, remaining: validin.Remaining{Daily: 10, Monthly: 50}}
+	e, _ := newEngine(t, s, v)
+	rep, _ := e.Lookup([]string{"example.com"}, Options{History: true})
+	r := rep.Results[0]
+	if r.Summary.LatestNotBefore != nil || r.Summary.EarliestNotBefore == nil || !r.Degraded {
+		t.Fatalf("summary = %+v", r.Summary)
+	}
+}
+
+// Review finding 4: a zero remainder on the empty page that completes a walk
+// still stops the rest of the call.
+func TestZeroOnTheFinalEmptyPageStopsTheCall(t *testing.T) {
+	s := &fakeSSLMate{count: map[string]int{"a.example": 5, "b.example": 1}, remaining: 1}
+	e, _ := newEngine(t, s, nil)
+	rep, _ := e.Lookup([]string{"a.example", "b.example"}, Options{})
+	if len(s.queries) != 2 || rep.Results[0].Truncated != "" || rep.Results[0].Degraded {
+		t.Fatalf("queries %d; a completed on its empty page: %+v", len(s.queries), rep.Results[0])
+	}
+	if rep.Results[1].Sources.SSLMate.Code != upstream.CodeRateLimited {
+		t.Fatalf("b must not be sent: %+v", rep.Results[1].Sources.SSLMate)
+	}
+}
+
+// Review finding 5: a rejected key stops that source for the call, and only
+// for the call.
+func TestRefusedKeyStopsTheSourceForTheCall(t *testing.T) {
+	bad := &upstream.Error{Source: "SSLMate", Code: upstream.CodeInvalidAPIKey, Status: 401, Detail: "not accepted"}
+	s := &fakeSSLMate{count: map[string]int{}, remaining: -1, fail: map[string]error{"a.example": bad, "b.example": bad}}
+	e, _ := newEngine(t, s, nil)
+	rep, _ := e.Lookup([]string{"a.example", "b.example", "c.example"}, Options{})
+	if len(s.queries) != 1 {
+		t.Fatalf("queries %d; after a refused key nothing more goes to SSLMate", len(s.queries))
+	}
+	for _, r := range rep.Results {
+		if r.Sources.SSLMate.Code != upstream.CodeInvalidAPIKey {
+			t.Fatalf("%s: %+v", r.Domain, r.Sources.SSLMate)
+		}
+	}
+	delete(s.fail, "a.example")
+	if rep, _ := e.Lookup([]string{"a.example"}, Options{}); rep.Results[0].Sources.SSLMate.State != StateOK {
+		t.Fatal("the next call tries again (the key may have been fixed)")
+	}
+
+	vbad := &upstream.Error{Source: "Validin", Code: upstream.CodeInvalidAPIKey, Status: 403, Detail: "not accepted"}
+	s2 := &fakeSSLMate{count: map[string]int{}, remaining: -1}
+	v := &fakeValidin{fail: vbad, remaining: validin.Remaining{Daily: 10, Monthly: 50}}
+	e2, _ := newEngine(t, s2, v)
+	_, _ = e2.Lookup([]string{"a.example", "b.example"}, Options{History: true})
+	if len(v.calls) != 1 {
+		t.Fatalf("validin calls %d; after a refused key nothing more goes to Validin", len(v.calls))
+	}
+}
+
+// Review finding 8: an absent first_seen does not become 1970.
+func TestHistorySkipsAbsentTimes(t *testing.T) {
+	h := history(&validin.Answer{Records: []validin.Record{{}, {FirstSeen: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC), LastSeen: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)}}})
+	if h.ObservedFrom == nil || h.ObservedFrom.Year() != 2025 || h.ObservedTo.Year() != 2025 {
+		t.Fatalf("history = %+v", h)
 	}
 }
