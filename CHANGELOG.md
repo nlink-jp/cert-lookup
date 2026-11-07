@@ -21,3 +21,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   per-kind allowance stops, the Validin quota check before sending, a
   per-source cache that never stores failures), text and `--json` output, and
   `--clear-cache`.
+- The MCP server (RFP Phase 2): `lookup_certs` (validation identical to the
+  CLI's, the engine's whole-call refusals with their codes, a 128 KB ceiling
+  that drops issuances oldest first across domains and counts them per
+  domain), `cache_status` (keys, cache, SSLMate's allowance as last observed,
+  Validin's remaining queries) and `get_usage`, with usage.md pinned to the
+  tools, arguments, codes and result values by meta-tests.

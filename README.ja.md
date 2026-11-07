@@ -12,7 +12,7 @@ cert-lookup は 2 つの CT 索引を重ねて 1 つの答えにします。
 外へ出るのは照会したドメイン名だけで、この 2 社に届きます。調べる相手には何も届きません
 （DNS の問い合わせもしません）。組織自身の業務だけに使ってください。
 
-> 状態: 開発中。CLI は動きます。MCP サーバーは後の段階で入ります。
+> 状態: 開発中（未リリース）。CLI と MCP サーバーが動きます。
 
 [English README](README.md)
 
@@ -87,6 +87,27 @@ SSLMate 4 時間（空なら 15 分）、Validin 7 日。
 
 `0` 全ドメインで全ソースが答えた · `1` どれかのドメインかソースが失敗した（答えは表示する）·
 `2` 使用法の誤り、または何も送らずに断った呼び出し。
+
+## MCP サーバー
+
+`cert-lookup mcp` は同じエンジンの上で動くローカルの stdio MCP サーバーで、ツールは 3 つです。
+
+| ツール | 役割 |
+|---|---|
+| `lookup_certs` | `domains`（1〜20）・`subdomains`・`history`・`refresh` — CLI の `--json` と同じ答え |
+| `cache_status` | キーの有無、キャッシュ、最後に見た SSLMate の残り回数、Validin の残り回数 |
+| `get_usage` | エージェントが最初に読むマニュアル |
+
+Claude Code への登録:
+
+```bash
+claude mcp add -s user cert-lookup -- /path/to/cert-lookup mcp
+```
+
+キーが無くても起動します（そのときは `get_usage` と `cache_status` だけが答えます）。
+`lookup_certs` の結果は 128 KB 以内に収め、超える分は古い発行から外して、ドメインごとの
+`omitted` に件数を書きます（要約は全件を数えたまま）。エラーは構造化 JSON（`{code, message}`）で、
+コードと対処はマニュアルに全部あります。
 
 ## プライバシーと規約
 

@@ -2,7 +2,7 @@
 
 ## Summary
 
-A CLI (and, from Phase 2, a local MCP server) that answers what the public Certificate
+A CLI and local MCP server that answers what the public Certificate
 Transparency logs recorded for a domain: when and by which CA each certificate was issued,
 which other names were on it, and whether it is still valid or revoked. It layers the
 SSLMate CT Search API (currently valid certificates, revocation) and Validin (past
@@ -12,7 +12,7 @@ Module path: `github.com/nlink-jp/cert-lookup`. Design authority:
 [docs/ja/cert-lookup-rfp.ja.md](docs/ja/cert-lookup-rfp.ja.md) (English beside it);
 measurements in [docs/ja/cert-lookup-phase0.ja.md](docs/ja/cert-lookup-phase0.ja.md).
 
-**Status: in development (Phase 1 done: CLI; Phase 2: MCP; Phase 3: release).**
+**Status: in development (Phase 1 CLI and Phase 2 MCP done; Phase 3: e2e, review, release).**
 
 ## Build / test
 
@@ -42,13 +42,17 @@ internal/issuance/   Pure merge (tbs_sha256 → cert fingerprint → issuer C/O/
 internal/cache/      Per-source JSON-file cache (ported from vpn-lookup), dir 0700
 internal/engine/     Page walk with caps and pacing, per-kind allowance stops, the Validin
                      quota check before sending, per-source cache, merge
-internal/app/        CLI shell: flags (anywhere), validation, text/JSON, --clear-cache
+internal/app/        CLI shell: flags (anywhere), validation, text/JSON, --clear-cache, `mcp`
+internal/mcp/        Zero-dep stdio JSON-RPC 2.0 server: lookup_certs / cache_status / get_usage;
+                     the 128 KB ceiling (oldest issuances out first, counted per domain);
+                     usage.md pinned to tools, arguments, codes and result values by meta-tests
 docs/{en,ja}/        RFP and the Phase 0 record
 ```
 
 ## Copy sources
 
-- config, guard, cache, the Makefile and `source_test.go`: vpn-lookup (the newest sibling)
+- config, guard, cache, the MCP protocol loop and strict argument decoding, the Makefile and
+  `source_test.go`: vpn-lookup (the newest sibling)
 - `scripts/`: copied from vpn-lookup, which holds them byte-identical to
   `nlink-jp/.github/templates/` (check-org check 10)
 
@@ -70,6 +74,8 @@ docs/{en,ja}/        RFP and the Phase 0 record
 - **Validin's single-host query returns no covering wildcard certificates**, has no serial
   number, and is `app.validin.com` (`api.validin.com` does not resolve).
 - **Validin's 403 spends nothing; a zero-record answer spends one query.**
+- **One SSLMate page of a large domain is 540-608 KB** (google.com): the MCP ceiling does real
+  work. Live, google.com's 240 issuances came back as the newest 60 in 130 KB, summary whole.
 - **Issuer DNs differ in format** (SSLMate `C=US, O=…`, Validin `/C=US/O=…` plus components);
   the merge compares C, O and CN.
 

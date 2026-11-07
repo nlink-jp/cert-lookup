@@ -13,7 +13,7 @@ cert-lookup layers two CT indexes into one answer:
 Only the domain names you look up reach those two services. Nothing reaches the domain
 itself — not even a DNS query. For your organization's own work only.
 
-> Status: in development. The CLI works; the MCP server comes in a later phase.
+> Status: in development (not yet released). The CLI and the MCP server work.
 
 [日本語版 README](README.ja.md)
 
@@ -89,6 +89,27 @@ Answers are cached: SSLMate 4 hours (15 minutes when empty), Validin 7 days.
 
 `0` every source answered for every domain · `1` a domain or a source failed (the answer is
 still printed) · `2` usage error, or a call refused before anything was sent.
+
+## MCP server
+
+`cert-lookup mcp` is a local stdio MCP server over the same engine, with three tools:
+
+| Tool | What it does |
+|---|---|
+| `lookup_certs` | `domains` (1-20), `subdomains`, `history`, `refresh` — the same answer as the CLI's `--json` |
+| `cache_status` | which keys are set, the cache, SSLMate's remaining queries as last seen, Validin's remaining queries |
+| `get_usage` | the manual an agent reads first |
+
+Register it with Claude Code:
+
+```bash
+claude mcp add -s user cert-lookup -- /path/to/cert-lookup mcp
+```
+
+The server starts without any key (only `get_usage` and `cache_status` then answer). A
+`lookup_certs` result is kept under 128 KB: past that, the oldest issuances are left out and
+counted in each domain's `omitted` (the summary still counts everything). Errors are
+structured JSON (`{code, message}`); the manual lists every code and its recovery.
 
 ## Privacy and terms
 
