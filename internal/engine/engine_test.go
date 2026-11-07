@@ -87,7 +87,7 @@ func (f *fakeValidin) Usage() (*validin.Remaining, error) {
 
 func newEngine(t *testing.T, s *fakeSSLMate, v *fakeValidin) (*Engine, *clock) {
 	t.Helper()
-	clk := &clock{t: time.Date(2026, 11, 7, 0, 0, 0, 0, time.UTC)}
+	clk := &clock{t: time.Date(2026, 11, 7, 9, 0, 0, 0, time.FixedZone("JST", 9*3600))}
 	s.clk = clk
 	e := &Engine{SSLMate: s, SSLMateScope: "s", ValidinScope: "v", Cache: &cache.Store{Dir: t.TempDir()}, Now: clk.Now, Sleep: clk.Sleep}
 	if v != nil {
@@ -154,8 +154,8 @@ func TestZeroAllowanceStopsTheCall(t *testing.T) {
 	if b.Sources.SSLMate.Code != upstream.CodeRateLimited || !b.Degraded || rep.Degraded != 1 {
 		t.Fatalf("b = %+v, degraded %d", b.Sources.SSLMate, rep.Degraded)
 	}
-	if obs := e.Allowances()[KindHost]; obs.Remaining != 0 || obs.ObservedAt.IsZero() {
-		t.Fatalf("observed = %+v", obs)
+	if obs := e.Allowances()[KindHost]; obs.Remaining != 0 || obs.ObservedAt.IsZero() || obs.ObservedAt.Location() != time.UTC {
+		t.Fatalf("observed = %+v (UTC, like every other timestamp)", obs)
 	}
 }
 

@@ -435,7 +435,7 @@ func (e *Engine) observe(k string, a sslmate.Allowance) {
 	if e.observed == nil {
 		e.observed = map[string]Observed{}
 	}
-	e.observed[k] = Observed{Limit: a.Limit, Remaining: a.Remaining, ObservedAt: e.now()}
+	e.observed[k] = Observed{Limit: a.Limit, Remaining: a.Remaining, ObservedAt: e.now().UTC()}
 }
 
 func (e *Engine) validinKey(d string, sub bool) string {
