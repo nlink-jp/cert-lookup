@@ -124,3 +124,20 @@ func TestUsageWithoutCountsIsAFailure(t *testing.T) {
 		t.Fatal("a usage answer without remaining counts must not read as zero or as plenty")
 	}
 }
+
+// Review finding 8: absent times stay zero; a non-hex fingerprint is refused.
+func TestAbsentTimesAndNonHexFingerprint(t *testing.T) {
+	c := server(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"status":"finished","records":{"ctstream":[{"value":{"not_before":"2026-01-01T00:00:00Z","not_after":"2026-02-01T00:00:00Z","details":{"fingerprint_sha256":"` + fp1 + `"}}}]}}`))
+	})
+	ans, err := c.Certificates("example.com", false)
+	if err != nil || !ans.Records[0].FirstSeen.IsZero() || !ans.Records[0].LastSeen.IsZero() {
+		t.Fatalf("ans=%+v err=%v; an absent first_seen must stay the zero time, not 1970", ans, err)
+	}
+	c = server(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"status":"finished","records":{"ctstream":[{"value":{"not_before":"2026-01-01T00:00:00Z","not_after":"2026-02-01T00:00:00Z","details":{"fingerprint_sha256":"` + strings.Repeat("zz", 32) + `"}}}]}}`))
+	})
+	if _, err := c.Certificates("example.com", false); err == nil {
+		t.Fatal("a fingerprint that is not hex must be refused")
+	}
+}

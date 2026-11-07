@@ -117,7 +117,7 @@ func allDigits(s string) bool {
 // is a raw list longer than ten times max (a pasted log, not a lookup list).
 func ParseBatch(raw []string, max int) ([]string, error) {
 	if len(raw) > 10*max {
-		return nil, fmt.Errorf("%d inputs given; at most %d distinct domain names per call", len(raw), max)
+		return nil, &TooManyError{Count: len(raw), Max: max, Raw: true}
 	}
 	seen := map[string]bool{}
 	var out []string
@@ -137,10 +137,17 @@ func ParseBatch(raw []string, max int) ([]string, error) {
 	return out, nil
 }
 
-// TooManyError says a batch holds more distinct names than one call answers.
-type TooManyError struct{ Count, Max int }
+// TooManyError says a batch holds more names than one call answers: more than
+// Max distinct ones, or (Raw) more than ten times Max inputs in all.
+type TooManyError struct {
+	Count, Max int
+	Raw        bool
+}
 
 func (e *TooManyError) Error() string {
+	if e.Raw {
+		return fmt.Sprintf("%d inputs given; at most %d distinct domain names per call", e.Count, e.Max)
+	}
 	return fmt.Sprintf("%d distinct domain names given; at most %d per call", e.Count, e.Max)
 }
 

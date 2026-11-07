@@ -101,8 +101,8 @@ func TestParseBatch(t *testing.T) {
 	if got, err := ParseBatch(dup, 20); err != nil || len(got) != 1 {
 		t.Fatalf("200 copies of one name is one lookup: %v %v", got, err)
 	}
-	if _, err := ParseBatch(append(dup, "example.org"), 20); err == nil {
-		t.Fatal("more than ten times max raw inputs must be refused")
+	if _, err := ParseBatch(append(dup, "example.org"), 20); !errors.As(err, &tm) || !tm.Raw {
+		t.Fatalf("more than ten times max raw inputs is a TooManyError: %v", err)
 	}
 }
 

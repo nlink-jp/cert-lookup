@@ -49,6 +49,9 @@ const MaxPerCall = 20
 // One page of a large domain measured 540-608 KB, so this cap does real work.
 const maxResultBytes = 128 << 10
 
+// envelopeBytes is kept free for the JSON-RPC envelope around the text.
+const envelopeBytes = 1 << 10
+
 // provenance travels with every lookup_certs result, so a reader of the result
 // alone knows what it is.
 const provenance = "Certificates recorded in public Certificate Transparency logs, from SSLMate's CT Search API " +
@@ -260,12 +263,22 @@ func capResult(r *lookupResult) toolResult {
 				refs = append(refs, ref{d, i})
 			}
 		}
-		if len(wire) <= maxResultBytes || len(refs) == 0 {
+		limit := maxResultBytes - envelopeBytes
+		if len(wire) <= limit {
 			return textResult(false, string(b))
+		}
+		if len(refs) == 0 {
+			// Only summaries are left. Their lists go next (the totals beside
+			// them stay); if that is still not enough, nothing is sent rather
+			// than a result over the ceiling.
+			if !trimLists(r) {
+				return errorResult(CodeInternal, "the result is too large even without issuances; ask for fewer domains")
+			}
+			continue
 		}
 		// Drop in proportion to the excess so a 600-issuance answer converges in
 		// a few encodes, not hundreds.
-		n := (len(wire)-maxResultBytes)*len(refs)/len(wire) + 1
+		n := (len(wire)-limit)*len(refs)/len(wire) + 1
 		sort.SliceStable(refs, func(x, y int) bool {
 			a := r.Results[refs[x].d].Issuances[refs[x].i]
 			b := r.Results[refs[y].d].Issuances[refs[y].i]
@@ -290,6 +303,20 @@ func capResult(r *lookupResult) toolResult {
 			r.OmittedTotal += len(set)
 		}
 	}
+}
+
+// trimLists empties the summaries' name and issuer lists, keeping their
+// totals. It reports whether anything was left to trim.
+func trimLists(r *lookupResult) bool {
+	trimmed := false
+	for d := range r.Results {
+		sm := &r.Results[d].Summary
+		if len(sm.NamesOutside) > 0 || len(sm.Issuers) > 0 {
+			sm.NamesOutside, sm.Issuers = []string{}, []string{}
+			trimmed = true
+		}
+	}
+	return trimmed
 }
 
 func (s *server) toolCacheStatus() toolResult {

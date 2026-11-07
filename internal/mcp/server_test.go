@@ -347,3 +347,38 @@ func TestCacheStatusReportsAllowanceQuotaAndNeverAKey(t *testing.T) {
 		t.Fatalf("a failed quota read is reported inside the status: %s", text)
 	}
 }
+
+// Review finding 9: a very long list is too_many_domains, not invalid_domain.
+func TestVeryLongListIsTooMany(t *testing.T) {
+	var ds []string
+	for i := 0; i < 10*MaxPerCall+1; i++ {
+		ds = append(ds, `"example.com"`)
+	}
+	text, isErr := toolText(t, serve(t, testConfig("sk", ""), callTool(ToolLookupCerts, `{"domains":[`+strings.Join(ds, ",")+`]}`))[0])
+	if !isErr || errorCode(t, text) != CodeTooManyDomains {
+		t.Fatalf("isErr=%v %s", isErr, text)
+	}
+}
+
+// Review finding 10: with no issuances left to drop, the summaries' lists go;
+// the result never crosses the ceiling, with room left for the envelope.
+func TestCapHoldsEvenForHugeSummaries(t *testing.T) {
+	r := &lookupResult{Report: &engine.Report{}}
+	for d := 0; d < 20; d++ {
+		var names []string
+		for i := 0; i < 100; i++ {
+			names = append(names, fmt.Sprintf("%0250d.example", i))
+		}
+		r.Results = append(r.Results, engine.DomainResult{Domain: fmt.Sprintf("d%d.example", d), Issuances: []issuance.Issuance{},
+			Summary: issuance.Summary{NamesOutside: names, NamesOutsideTotal: 100, Issuers: []string{"CA"}, IssuersTotal: 1}})
+	}
+	res := capResult(r)
+	wire, _ := json.Marshal(res.Content[0].Text)
+	if len(wire) > maxResultBytes-envelopeBytes {
+		t.Fatalf("wire %d over the ceiling", len(wire))
+	}
+	var out lookupResult
+	if res.IsError || json.Unmarshal([]byte(res.Content[0].Text), &out) != nil || out.Results[0].Summary.NamesOutsideTotal != 100 || len(out.Results[0].Summary.NamesOutside) != 0 {
+		t.Fatalf("lists must be emptied with their totals kept: %.300s", res.Content[0].Text)
+	}
+}

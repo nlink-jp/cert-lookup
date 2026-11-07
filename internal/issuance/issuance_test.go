@@ -199,3 +199,18 @@ func TestDNStringRoundTrips(t *testing.T) {
 		t.Fatalf("ParseDN(%q) = %+v", d.String(), got)
 	}
 }
+
+// Review finding 7: a certificate joined by its fingerprint registers its own
+// tuple, so its precertificate joins too even when SSLMate's names differ.
+func TestPrecertJoinsThroughTheCertificatesTuple(t *testing.T) {
+	nb, na := ts("2026-05-07T00:00:00Z"), ts("2026-11-20T23:59:59Z")
+	ss := []sslmate.Issuance{{TBSSHA256: hex64('a'), CertSHA256: hex64('c'), DNSNames: []string{"*.example.com"}, NotBefore: nb, NotAfter: na, Issuer: sslmate.Issuer{Name: amazon}}}
+	vs := []validin.Record{
+		{CommonName: "example.com", Domains: []string{"*.example.com"}, Issuer: amazonV, NotBefore: nb, NotAfter: na, FingerprintSHA256: hex64('c')},
+		{CommonName: "example.com", Domains: []string{"*.example.com"}, Issuer: amazonV, NotBefore: nb, NotAfter: na, FingerprintSHA256: hex64('p'), Precert: true},
+	}
+	got := Merge(ss, vs, now)
+	if len(got) != 1 || len(got[0].CertSHA256) != 2 {
+		t.Fatalf("got %d issuances %+v; the precertificate must join the same issuance", len(got), got)
+	}
+}

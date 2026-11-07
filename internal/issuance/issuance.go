@@ -149,6 +149,13 @@ func Merge(ss []sslmate.Issuance, vs []validin.Record, now time.Time) []Issuance
 			byTuple[k] = g
 			groups = append(groups, g)
 		}
+		// Register this record's own tuple too: a certificate joined by its
+		// fingerprint carries the tuple its precertificate will match, even
+		// when it differs from SSLMate's (a DN that parses differently, a CN
+		// missing from SSLMate's names).
+		if byTuple[k] == nil {
+			byTuple[k] = g
+		}
 		g.validin = true
 		addAll(g.names, keys(names))
 		g.certs[v.FingerprintSHA256] = true

@@ -244,6 +244,27 @@ type wireRecord struct {
 	} `json:"value"`
 }
 
+// unixOrZero reads a unix time, keeping an absent (0) one as the zero time
+// rather than 1970-01-01.
+func unixOrZero(n int64) time.Time {
+	if n <= 0 {
+		return time.Time{}
+	}
+	return time.Unix(n, 0).UTC()
+}
+
+func isHex64(s string) bool {
+	if len(s) != 64 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if c := s[i]; (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
 func (w *wireRecord) clean() (Record, error) {
 	v := &w.Value
 	nb, err1 := time.Parse(time.RFC3339, v.NotBefore)
@@ -252,12 +273,12 @@ func (w *wireRecord) clean() (Record, error) {
 		return Record{}, fmt.Errorf("validity is not RFC 3339")
 	}
 	fp := strings.ToLower(v.Details.FingerprintSHA256)
-	if len(fp) != 64 {
+	if !isHex64(fp) {
 		return Record{}, fmt.Errorf("fingerprint_sha256 is not a SHA-256")
 	}
 	r := Record{
-		FirstSeen:         time.Unix(w.FirstSeen, 0).UTC(),
-		LastSeen:          time.Unix(w.LastSeen, 0).UTC(),
+		FirstSeen:         unixOrZero(w.FirstSeen),
+		LastSeen:          unixOrZero(w.LastSeen),
 		CommonName:        strings.ToLower(guard.Cap(v.CommonName, guard.MaxDNSName)),
 		Domains:           sslmate.CleanNames(v.Details.Domains),
 		Issuer:            Issuer{C: guard.Text(v.Issuer.C), O: guard.Text(v.Issuer.O), CN: guard.Text(v.Issuer.CN)},
