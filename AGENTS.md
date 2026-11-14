@@ -21,6 +21,7 @@ make build   # → dist/cert-lookup (NEVER `go build` directly)
 make test    # go test -race -cover ./... then go vet -tags e2e ./...  (offline)
 make lint    # golangci-lint — before every commit
 make check   # lint + test + build-all
+make vuln    # govulncheck over the build; `make package` runs it first and stops on a finding
 make e2e     # live; keys from CERT_LOOKUP_SSLMATE_API_KEY / CERT_LOOKUP_VALIDIN_API_KEY
              # (~6 SSLMate queries and 1 Validin query a run; history skips without its key)
 ```
