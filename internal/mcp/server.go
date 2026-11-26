@@ -3,14 +3,27 @@ package mcp
 import (
 	"encoding/json"
 	"io"
+	"slices"
 
 	"github.com/nlink-jp/cert-lookup/internal/config"
 	"github.com/nlink-jp/cert-lookup/internal/engine"
 	"github.com/nlink-jp/cert-lookup/internal/validin"
 )
 
-// defaultProtocolVersion is advertised when the client sends none.
-const defaultProtocolVersion = "2025-06-18"
+// supportedProtocolVersions are the MCP revisions this server satisfies, newest
+// first. 2025-03-26 is left out: it requires accepting JSON-RPC batches, which
+// this server does not.
+var supportedProtocolVersions = []string{"2025-11-25", "2025-06-18", "2024-11-05"}
+
+// negotiateProtocolVersion answers initialize: the requested revision when the
+// server satisfies it, otherwise the newest one it does. Echoing an unknown
+// revision would claim support for a protocol the server does not speak.
+func negotiateProtocolVersion(requested string) string {
+	if slices.Contains(supportedProtocolVersions, requested) {
+		return requested
+	}
+	return supportedProtocolVersions[0]
+}
 
 // serverName is what initialize reports, and what a client lists the server as.
 const serverName = "cert-lookup"
@@ -132,17 +145,15 @@ func (s *server) ok(id json.RawMessage, result any) response {
 }
 
 func (s *server) initializeResult(params json.RawMessage) any {
-	pv := defaultProtocolVersion
+	var p struct {
+		ProtocolVersion string `json:"protocolVersion"`
+	}
 	if len(params) > 0 {
-		var p struct {
-			ProtocolVersion string `json:"protocolVersion"`
-		}
-		if json.Unmarshal(params, &p) == nil && p.ProtocolVersion != "" {
-			pv = p.ProtocolVersion
-		}
+		// Malformed params leave the field empty, and the newest revision answers.
+		_ = json.Unmarshal(params, &p)
 	}
 	return map[string]any{
-		"protocolVersion": pv,
+		"protocolVersion": negotiateProtocolVersion(p.ProtocolVersion),
 		"capabilities":    map[string]any{"tools": map[string]any{}},
 		"serverInfo":      map[string]any{"name": serverName, "version": s.version},
 		"instructions":    Instructions,

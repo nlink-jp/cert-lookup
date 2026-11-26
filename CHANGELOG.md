@@ -15,6 +15,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   build alone, so an advisory in a Linux- or Windows-only package could not
   stop a release.
 
+### Fixed
+
+- **`initialize` no longer echoes back whichever protocol version the client
+  asks for.** The server answers with the requested revision only when it
+  satisfies it (2025-11-25, 2025-06-18 or 2024-11-05), and with 2025-11-25
+  otherwise, as the MCP lifecycle requires. A client asking for 2026-07-28 was
+  told the server spoke it, while the server went on speaking the
+  handshake-based protocol. 2025-03-26 is not offered: it requires accepting
+  JSON-RPC batches, which this server does not.
+
 ## [0.1.0] - 2026-11-07
 
 First release.
