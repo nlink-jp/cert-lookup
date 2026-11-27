@@ -32,7 +32,7 @@ Follow the common policy (nlink-jp/mcp's `docs/en/server-migration.md`, v0.3.0) 
    are -32602; `arguments` that is not an object is -32602; `"id":null` and a request without `"jsonrpc"` are -32600;
    framing changes from `json.Decoder` to one message per line (16 MiB); parse errors and batches no longer end the
    server; a panic is answered -32603; up to 256 calls wait, more get -32603 "server busy". An unknown tool is -32602 (item 3).
-5. **Cancellation (policy §5)**: `notifications/cancelled` now cancels the call's ctx. A cancelled `lookup_certs` still runs to its end — the engine takes no context — and its answer is dropped; the cache is written whole to a temporary file and renamed, so no entry is ever partial; a temp file left by a process ended part-way (a SIGTERM past the shutdown grace) is removed by `cache clear`.
+5. **Cancellation (policy §5)**: `notifications/cancelled` now cancels the call's ctx. A cancelled `lookup_certs` still runs to its end — the engine takes no context — and its answer is dropped; the cache is written whole to a temporary file and renamed, so no entry is ever partial; a temp file left by a process ended part-way (a SIGTERM past the shutdown grace) is removed by `cert-lookup --clear-cache`.
 6. **Signals (policy §2)**: the `mcp` subcommand passes `Serve` a ctx cancelled by SIGINT and SIGTERM.
 7. **Dependency and version**: `github.com/nlink-jp/mcp` is added; minor (v0.2.0).
 8. **Tests (policy §6)**: the app test and the live e2e open the `mcp` subcommand with the module's client; the e2e's `tools/call` without `initialize` would now be refused.

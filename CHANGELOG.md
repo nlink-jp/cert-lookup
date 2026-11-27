@@ -35,7 +35,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     context — and its answer is dropped; the cache is written whole to a
     temporary file and renamed, so no entry is ever partial; a temp file left
     by a process ended part-way (a SIGTERM past the shutdown grace) is removed
-    by `cache clear`.
+    by `cert-lookup --clear-cache`.
 
   Requests piped in are still all answered before the server exits at end of
   input.
