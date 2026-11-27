@@ -26,8 +26,9 @@ make e2e     # live; keys from CERT_LOOKUP_SSLMATE_API_KEY / CERT_LOOKUP_VALIDIN
              # (~6 SSLMate queries and 1 Validin query a run; history skips without its key)
 ```
 
-Go 1.25+. One dependency, the organization's TOML decoder `github.com/nlink-jp/toml`
-(ADR-026). Everything else is the standard library.
+Go 1.25+. Two dependencies, both the organization's own: the TOML decoder
+`github.com/nlink-jp/toml` (ADR-026) and the MCP protocol layer `github.com/nlink-jp/mcp`
+(organization ADR-030; ADR-0001). Everything else is the standard library.
 
 ## Layout
 
@@ -46,7 +47,7 @@ internal/cache/      Per-source JSON-file cache (ported from vpn-lookup), dir 07
 internal/engine/     Page walk with caps and pacing, per-kind allowance stops, the Validin
                      quota check before sending, per-source cache, merge
 internal/app/        CLI shell: flags (anywhere), validation, text/JSON, --clear-cache, `mcp`
-internal/mcp/        Zero-dep stdio JSON-RPC 2.0 server: lookup_certs / cache_status / get_usage;
+internal/mcp/        MCP tools on nlink-jp/mcp's server.ToolServer (both eras; ADR-0001): lookup_certs / cache_status / get_usage;
                      the 128 KB ceiling (oldest issuances out first, counted per domain);
                      usage.md pinned to tools, arguments, codes and result values by meta-tests
 e2e/                 Live suite (build tag "e2e"): example.com, a public suffix, a bad key, a
@@ -63,6 +64,14 @@ docs/{en,ja}/        RFP and the Phase 0 record
 
 ## Gotchas (measured — see the Phase 0 record)
 
+- **The MCP protocol is nlink-jp/mcp's** (ADR-0001, organization ADR-030 §6).
+  `internal/mcp` never handles `initialize` or `server/discover` itself: `Serve`
+  registers `toolsList()` on a `server.ToolServer` and each handler calls
+  `toolsCall`. Tests replay their requests through the module's `client`
+  (`clienttest_test.go`, `internal/app/mcpclient_test.go`, `e2e/mcpclient_test.go`)
+  and run its three probe clients; do not write the handshake by hand in a test.
+  Before initialize, `tools/*` is -32602 — the module's rule, not a defect.
+  Argument names are matched exactly (`decodeArgs`, `jsonNames`).
 - **SSLMate returns oldest first, 100 to a page, and every page counts** (an empty one too).
   The walk ends only on an empty page (the documented signal), within 5 pages for a single
   host and 3 with subdomains, plus one request to confirm the end whose issuances are kept
