@@ -14,6 +14,7 @@ import (
 	"github.com/nlink-jp/cert-lookup/internal/engine"
 	"github.com/nlink-jp/cert-lookup/internal/issuance"
 	"github.com/nlink-jp/cert-lookup/internal/validin"
+	"github.com/nlink-jp/mcp/client"
 )
 
 func testConfig(sslmateKey, validinKey string) *config.Config {
@@ -372,4 +373,16 @@ func TestAgainstTheProbeClients(t *testing.T) {
 	probeMatrix(t, func(ctx context.Context, in io.Reader, w io.Writer) error {
 		return Serve(ctx, o, in, w)
 	})
+}
+
+// The client that opens the server receives the instructions — the hint that
+// points it at get_usage — whichever era it opens in.
+func TestOpeningCarriesTheInstructions(t *testing.T) {
+	o := Options{Config: testConfig("", ""), Engine: &fakeEngine{}, Version: "test"}
+	cl := openWith(t, func(ctx context.Context, in io.Reader, w io.Writer) error {
+		return Serve(ctx, o, in, w)
+	}, client.Options{})
+	if got := cl.Instructions(); got != Instructions {
+		t.Errorf("instructions = %q, want the package's Instructions", got)
+	}
 }
