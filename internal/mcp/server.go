@@ -49,6 +49,9 @@ type Options struct {
 	Engine       Looker
 	ValidinQuota func() (*validin.Remaining, error)
 	Version      string
+	// Log receives the protocol layer's diagnostics (Warn and above); nil
+	// means os.Stderr. stdout belongs to the JSON-RPC stream.
+	Log io.Writer
 }
 
 type server struct {
@@ -56,6 +59,7 @@ type server struct {
 	eng     Looker
 	quota   func() (*validin.Remaining, error)
 	version string
+	log     io.Writer
 }
 
 // Serve runs the MCP server until in reaches EOF (answering every request that
@@ -64,7 +68,10 @@ type server struct {
 // framing, versions, cancellation — is nlink-jp/mcp's (organization ADR-030);
 // this package holds the tools. Diagnostics go to stderr only.
 func Serve(ctx context.Context, o Options, in io.Reader, out io.Writer) error {
-	s := &server{cfg: o.Config, eng: o.Engine, quota: o.ValidinQuota, version: o.Version}
+	s := &server{cfg: o.Config, eng: o.Engine, quota: o.ValidinQuota, version: o.Version, log: o.Log}
+	if s.log == nil {
+		s.log = os.Stderr
+	}
 	ts, err := s.toolServer()
 	if err != nil {
 		return err
@@ -86,7 +93,7 @@ func (s *server) toolServer() (*mcpserver.ToolServer, error) {
 		// Calls sent side by side wait, as they did before the module: the
 		// default of 16 would refuse the 17th as "server busy".
 		QueueDepth: 256,
-		Logger:     slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn})),
+		Logger:     slog.New(slog.NewTextHandler(s.log, &slog.HandlerOptions{Level: slog.LevelWarn})),
 	})
 	if err != nil {
 		return nil, err

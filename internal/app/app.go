@@ -267,7 +267,7 @@ func runMCP(args []string, version string, stdin io.Reader, stdout, stderr io.Wr
 		return exitUsage
 	}
 	warn(stderr, cfg)
-	opts := mcp.Options{Config: cfg, Engine: NewEngine(cfg, version), Version: version}
+	opts := mcp.Options{Config: cfg, Engine: NewEngine(cfg, version), Version: version, Log: stderr}
 	if cfg.HasValidin() {
 		vc := &validin.Client{HTTP: keyClient(cfg), BaseURL: cfg.ValidinBaseURL, APIKey: cfg.ValidinKey, UserAgent: "cert-lookup/" + version}
 		opts.ValidinQuota = vc.Usage

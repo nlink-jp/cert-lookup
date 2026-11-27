@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -384,5 +385,20 @@ func TestOpeningCarriesTheInstructions(t *testing.T) {
 	}, client.Options{})
 	if got := cl.Instructions(); got != Instructions {
 		t.Errorf("instructions = %q, want the package's Instructions", got)
+	}
+}
+
+type brokenStdin struct{}
+
+func (brokenStdin) Read([]byte) (int, error) { return 0, errors.New("broken stdin") }
+
+// The protocol layer's diagnostics go to Options.Log — the mcp subcommand
+// passes its stderr — not to os.Stderr behind the caller's back.
+func TestDiagnosticsGoToTheGivenLog(t *testing.T) {
+	var log bytes.Buffer
+	o := Options{Config: testConfig("", ""), Engine: &fakeEngine{}, Version: "test", Log: &log}
+	_ = Serve(context.Background(), o, brokenStdin{}, io.Discard)
+	if !strings.Contains(log.String(), "reading stdin failed") {
+		t.Fatalf("log = %q, want the protocol layer's warning", log.String())
 	}
 }
