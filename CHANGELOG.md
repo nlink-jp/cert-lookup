@@ -18,7 +18,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 
 - Protocol details now follow the module:
-  - an unknown tool is -32602 (it was an isError `unknown_tool` result, now gone from usage.md);
+  - an unknown tool is -32602 (it was an isError `unknown_tool` result, now
+    gone from usage.md);
   - `tools/list`, `tools/call` and unknown methods before `initialize` are
     refused with -32602 (an unknown method was -32601);
   - `arguments` that is not an object is refused with -32602 before reaching
@@ -32,7 +33,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - `notifications/cancelled` now cancels the call.
     A cancelled `lookup_certs` still runs to its end — the engine takes no
     context — and its answer is dropped; the cache is written whole to a
-    temporary file and renamed, so nothing partial is left.
+    temporary file and renamed, so no entry is ever partial; a temp file left
+    by a process ended part-way (a SIGTERM past the shutdown grace) is removed
+    by `cache clear`.
 
   Requests piped in are still all answered before the server exits at end of
   input.
