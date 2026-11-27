@@ -193,9 +193,8 @@ func TestLiveBinary(t *testing.T) {
 	if _, errOut, code := run("", "https://example.com/"); code != 2 || !strings.Contains(errOut, "not a URL") {
 		t.Fatalf("a URL must be refused: code=%d err=%q", code, errOut)
 	}
-	mcpIn := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"lookup_certs","arguments":{"domains":["` + example + `"]}}}` + "\n"
-	out, errOut, code = run(mcpIn, "mcp")
-	if code != 0 || !strings.Contains(out, `\"from_cache\":true`) || !strings.Contains(out, `\"provenance\"`) {
-		t.Fatalf("mcp lookup_certs: code=%d out=%.400s err=%q", code, out, errOut)
+	text, isErr := callBinary(t, bin, env, "lookup_certs", map[string]any{"domains": []string{example}})
+	if isErr || !strings.Contains(text, `"from_cache":true`) || !strings.Contains(text, `"provenance"`) {
+		t.Fatalf("mcp lookup_certs: isError=%v text=%.400s", isErr, text)
 	}
 }

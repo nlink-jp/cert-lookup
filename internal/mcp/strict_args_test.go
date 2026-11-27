@@ -39,10 +39,20 @@ func TestUnknownArgumentIsRefusedByName(t *testing.T) {
 	}
 }
 
-// A malformed argument object is refused, not read as "no arguments".
+// A wrong-typed argument is refused, not read as "no arguments".
 func TestMalformedArgumentsAreRefused(t *testing.T) {
-	text, isErr := toolText(t, serve(t, testConfig("", ""), callTool(ToolCacheStatus, `[1,2]`))[0])
+	text, isErr := toolText(t, serve(t, testConfig("", ""), callTool(ToolLookupCerts, `{"domains":"example.com"}`))[0])
 	if !isErr || !strings.Contains(text, CodeInvalidInput) {
 		t.Fatalf("isErr=%v %s", isErr, text)
+	}
+}
+
+// The module answers arguments that are not an object with -32602; they no
+// longer reach the tool.
+func TestNonObjectArgumentsAreAProtocolError(t *testing.T) {
+	resps := serve(t, testConfig("", ""), callTool(ToolCacheStatus, `[1,2]`))
+	e, _ := resps[0]["error"].(map[string]any)
+	if e == nil || int(e["code"].(float64)) != -32602 {
+		t.Errorf("array arguments: %v, want -32602", resps[0])
 	}
 }

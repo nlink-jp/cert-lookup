@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"bytes"
+	"context"
 	_ "embed"
 	"encoding/json"
 	"errors"
@@ -37,7 +38,6 @@ const (
 	CodeRateLimited        = "rate_limited"
 	CodeTimeout            = "timeout"
 	CodeUpstream           = "upstream_error"
-	CodeUnknownTool        = "unknown_tool"
 	CodeInternal           = "internal_error"
 )
 
@@ -65,8 +65,9 @@ const provenance = "Certificates recorded in public Certificate Transparency log
 //go:embed usage.md
 var usageMarkdown string
 
-// Instructions is the initialize-time hint (surfaced via the MCP
-// `instructions` field) that makes get_usage discoverable.
+// Instructions is the hint a client receives when it opens the server (the
+// MCP `instructions` field, in initialize or server/discover) that makes
+// get_usage discoverable.
 const Instructions = "cert-lookup answers which certificates the public Certificate Transparency logs recorded for a " +
 	"domain — when and by which CA they were issued, which other names were on them (names_outside leads to related " +
 	"domains), and whether they are revoked. lookup_certs takes 1-20 domain names (ASCII; punycode for " +
@@ -139,64 +140,59 @@ func jsonNames(into any) map[string]bool {
 }
 
 // toolsList returns the advertised tool set with JSON Schema for each input.
-func toolsList() any {
-	return map[string]any{
-		"tools": []map[string]any{
-			{
-				"name": ToolLookupCerts,
-				"description": "Which certificates did the public CT logs record for each domain — issuer, validity, the " +
-					"other names on them (names_outside), revocation? Currently valid certificates by default; history:true " +
-					"adds past issuances from Validin (a sample; 10 queries a day). Only the domain names reach SSLMate and " +
-					"Validin; nothing reaches the domain itself.",
-				"inputSchema": obj(map[string]any{
-					"domains": map[string]any{
-						"type":        "array",
-						"items":       map[string]any{"type": "string"},
-						"description": "Domain names, 1-20 distinct per call: ASCII only (punycode xn-- for internationalized names); no URL, IP or wildcard. One name that cannot be sent refuses the whole call.",
-					},
-					"subdomains": map[string]any{"type": "boolean", "description": "Include certificates for the whole subtree (SSLMate allows 10 such queries an hour)."},
-					"history":    map[string]any{"type": "boolean", "description": "Add past issuances from Validin: a sample, one query per domain not in the cache, 10 a day."},
-					"refresh":    map[string]any{"type": "boolean", "description": "Bypass the local cache and ask again (spends queries)."},
-				}, "domains"),
-			},
-			{
-				"name":        ToolGetUsage,
-				"description": "Return this server's operating manual (markdown): the tools, how to read a result, the limits and the error-recovery table. Call it once before first use.",
-				"inputSchema": obj(map[string]any{}),
-			},
-			{
-				"name":        ToolCacheStatus,
-				"description": "Report which sources have a key, the cache, SSLMate's remaining queries as last seen, and Validin's remaining queries (one free request). Answers even when no key is configured.",
-				"inputSchema": obj(map[string]any{}),
-			},
+func toolsList() []map[string]any {
+	return []map[string]any{
+		{
+			"name": ToolLookupCerts,
+			"description": "Which certificates did the public CT logs record for each domain — issuer, validity, the " +
+				"other names on them (names_outside), revocation? Currently valid certificates by default; history:true " +
+				"adds past issuances from Validin (a sample; 10 queries a day). Only the domain names reach SSLMate and " +
+				"Validin; nothing reaches the domain itself.",
+			"inputSchema": obj(map[string]any{
+				"domains": map[string]any{
+					"type":        "array",
+					"items":       map[string]any{"type": "string"},
+					"description": "Domain names, 1-20 distinct per call: ASCII only (punycode xn-- for internationalized names); no URL, IP or wildcard. One name that cannot be sent refuses the whole call.",
+				},
+				"subdomains": map[string]any{"type": "boolean", "description": "Include certificates for the whole subtree (SSLMate allows 10 such queries an hour)."},
+				"history":    map[string]any{"type": "boolean", "description": "Add past issuances from Validin: a sample, one query per domain not in the cache, 10 a day."},
+				"refresh":    map[string]any{"type": "boolean", "description": "Bypass the local cache and ask again (spends queries)."},
+			}, "domains"),
+		},
+		{
+			"name":        ToolGetUsage,
+			"description": "Return this server's operating manual (markdown): the tools, how to read a result, the limits and the error-recovery table. Call it once before first use.",
+			"inputSchema": obj(map[string]any{}),
+		},
+		{
+			"name":        ToolCacheStatus,
+			"description": "Report which sources have a key, the cache, SSLMate's remaining queries as last seen, and Validin's remaining queries (one free request). Answers even when no key is configured.",
+			"inputSchema": obj(map[string]any{}),
 		},
 	}
 }
 
-func (s *server) toolsCall(params json.RawMessage) (toolResult, *rpcError) {
-	var p struct {
-		Name      string          `json:"name"`
-		Arguments json.RawMessage `json:"arguments"`
-	}
-	if err := json.Unmarshal(params, &p); err != nil {
-		return toolResult{}, &rpcError{Code: -32602, Message: "invalid params: " + err.Error()}
-	}
-	switch p.Name {
+// toolsCall dispatches one call by tool name and builds its result. The
+// engine takes no context: a cancelled call still runs to its end, and the
+// module drops the answer.
+func (s *server) toolsCall(_ context.Context, name string, args json.RawMessage) toolResult {
+	switch name {
 	case ToolLookupCerts:
-		return s.toolLookupCerts(p.Arguments), nil
+		return s.toolLookupCerts(args)
 	case ToolGetUsage:
 		// No arguments — which still means "none", not "any".
-		if err := decodeArgs(p.Arguments, &struct{}{}); err != nil {
-			return errorResult(CodeInvalidInput, err.Error()), nil
+		if err := decodeArgs(args, &struct{}{}); err != nil {
+			return errorResult(CodeInvalidInput, err.Error())
 		}
-		return textResult(false, usageMarkdown), nil
+		return textResult(false, usageMarkdown)
 	case ToolCacheStatus:
-		if err := decodeArgs(p.Arguments, &struct{}{}); err != nil {
-			return errorResult(CodeInvalidInput, err.Error()), nil
+		if err := decodeArgs(args, &struct{}{}); err != nil {
+			return errorResult(CodeInvalidInput, err.Error())
 		}
-		return s.toolCacheStatus(), nil
+		return s.toolCacheStatus()
 	default:
-		return errorResult(CodeUnknownTool, "unknown tool: "+p.Name+" (call tools/list)"), nil
+		// Not reached: the protocol layer refuses a tool it did not register.
+		return textResult(true, "unknown tool: "+name)
 	}
 }
 

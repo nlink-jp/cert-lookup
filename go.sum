@@ -1,2 +1,4 @@
+github.com/nlink-jp/mcp v0.3.0 h1:BliCB8vjeLLhlkk3KlxpnUYAvqsrbcKM8Khekfz7MmI=
+github.com/nlink-jp/mcp v0.3.0/go.mod h1:zZMrI0OhABn3R2K2ISiSuo1hf2nkyJSdqrVYB/mk0M8=
 github.com/nlink-jp/toml v0.1.1 h1:zxmLkY1muUMABHCJlwI5wI4RQFOFVo/6Ut223/X4L8M=
 github.com/nlink-jp/toml v0.1.1/go.mod h1:dzbdZU7YAqs6r72Cz0bxRLCapcdZor68Mo5cPVZ2U30=

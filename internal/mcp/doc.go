@@ -1,4 +1,5 @@
-// Package mcp is the zero-dependency stdio JSON-RPC 2.0 MCP server answering
+// Package mcp is cert-lookup's stdio MCP server, speaking both eras of the
+// protocol through nlink-jp/mcp's server.ToolServer (ADR-0001), answering
 // lookup_certs, cache_status and get_usage over the same engine the CLI uses.
 //
 // This package is where the response budget lives: lookup_certs's result is
@@ -13,6 +14,6 @@
 // rather than protocol errors so that the model sees them. Arguments are decoded
 // strictly (decodeArgs): an undeclared argument is refused by name, for every
 // tool including those that take none. Domains are validated exactly as the CLI
-// validates them (domain.ParseBatch) before anything is sent. A closing stdin is
-// the shutdown signal.
+// validates them (domain.ParseBatch) before anything is sent. The server ends at
+// end of input (answering every request that arrived) or on SIGINT/SIGTERM.
 package mcp

@@ -103,7 +103,6 @@ Tool errors are structured JSON: `{"code": ..., "message": ...}` with `isError: 
 | `rate_limited` | reading Validin's remaining count was refused for rate | wait and retry |
 | `timeout` | reading Validin's remaining count timed out | retry |
 | `upstream_error` | reading Validin's remaining count failed otherwise | retry later |
-| `unknown_tool` | a tool name this server does not have | call `tools/list` |
 | `internal_error` | the result could not be encoded, or is over the ceiling even without issuances and lists | ask for fewer domains; otherwise report it as a bug |
 
 A source failing for some domains is not a tool error: those results carry the source's `state: "failed"` with its `code`, `degraded: true`, and notes.

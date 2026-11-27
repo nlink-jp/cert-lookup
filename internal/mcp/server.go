@@ -1,51 +1,24 @@
 package mcp
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"io"
-	"slices"
+	"log/slog"
+	"os"
+
+	"github.com/nlink-jp/mcp"
+	mcpserver "github.com/nlink-jp/mcp/server"
 
 	"github.com/nlink-jp/cert-lookup/internal/config"
 	"github.com/nlink-jp/cert-lookup/internal/engine"
 	"github.com/nlink-jp/cert-lookup/internal/validin"
 )
 
-// supportedProtocolVersions are the MCP revisions this server satisfies, newest
-// first. 2025-03-26 is left out: it requires accepting JSON-RPC batches, which
-// this server does not.
-var supportedProtocolVersions = []string{"2025-11-25", "2025-06-18", "2024-11-05"}
-
-// negotiateProtocolVersion answers initialize: the requested revision when the
-// server satisfies it, otherwise the newest one it does. Echoing an unknown
-// revision would claim support for a protocol the server does not speak.
-func negotiateProtocolVersion(requested string) string {
-	if slices.Contains(supportedProtocolVersions, requested) {
-		return requested
-	}
-	return supportedProtocolVersions[0]
-}
-
-// serverName is what initialize reports, and what a client lists the server as.
+// serverName is the name the server reports when a client opens it, and what
+// a client lists the server as.
 const serverName = "cert-lookup"
-
-type request struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      json.RawMessage `json:"id"` // absent/null ⇒ notification
-	Method  string          `json:"method"`
-	Params  json.RawMessage `json:"params"`
-}
-
-type response struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      json.RawMessage `json:"id"`
-	Result  any             `json:"result,omitempty"`
-	Error   *rpcError       `json:"error,omitempty"`
-}
-
-type rpcError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-}
 
 // toolResult is the tools/call payload.
 type toolResult struct {
@@ -85,77 +58,68 @@ type server struct {
 	version string
 }
 
-// Serve runs the MCP protocol loop until in reaches EOF, which is the shutdown
-// signal. It is safe to point in at os.Stdin and out at os.Stdout; diagnostics
-// must go to stderr only.
-func Serve(o Options, in io.Reader, out io.Writer) error {
+// Serve runs the MCP server until in reaches EOF (answering every request that
+// arrived), ctx is cancelled, or a write to out fails. The protocol itself —
+// both eras (the legacy initialize handshake and the 2026-07-28 revision),
+// framing, versions, cancellation — is nlink-jp/mcp's (organization ADR-030);
+// this package holds the tools. Diagnostics go to stderr only.
+func Serve(ctx context.Context, o Options, in io.Reader, out io.Writer) error {
 	s := &server{cfg: o.Config, eng: o.Engine, quota: o.ValidinQuota, version: o.Version}
-	dec := json.NewDecoder(in)
-	enc := json.NewEncoder(out)
-	for {
-		var req request
-		if err := dec.Decode(&req); err != nil {
-			if err == io.EOF {
-				return nil
-			}
-			// The stream position is unrecoverable after malformed JSON;
-			// report a parse error and stop rather than spin on the same bytes.
-			_ = enc.Encode(response{
-				JSONRPC: "2.0",
-				ID:      json.RawMessage("null"),
-				Error:   &rpcError{Code: -32700, Message: "parse error: " + err.Error()},
-			})
-			return nil
-		}
-		resp, skip := s.handle(&req)
-		if skip {
-			continue
-		}
-		if err := enc.Encode(resp); err != nil {
-			return err
-		}
+	ts, err := s.toolServer()
+	if err != nil {
+		return err
 	}
+	return ts.Serve(ctx, in, out)
 }
 
-func (s *server) handle(req *request) (response, bool) {
-	// A missing or null id marks a JSON-RPC notification: never reply.
-	if len(req.ID) == 0 || string(req.ID) == "null" {
-		return response{}, true
+// toolServer registers the advertised tools, in their listed order, on a
+// fresh protocol server. Each handler calls toolsCall, which dispatches by
+// name and builds the tool's result.
+func (s *server) toolServer() (*mcpserver.ToolServer, error) {
+	ts, err := mcpserver.New(mcpserver.Info{
+		Server:       mcp.Implementation{Name: serverName, Version: s.version},
+		Instructions: Instructions,
+	}, mcpserver.Options{
+		// One call at a time, as before the module: state in the server and
+		// its engine assumes it.
+		Workers: 1,
+		// Calls sent side by side wait, as they did before the module: the
+		// default of 16 would refuse the 17th as "server busy".
+		QueueDepth: 256,
+		Logger:     slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn})),
+	})
+	if err != nil {
+		return nil, err
 	}
-	switch req.Method {
-	case "initialize":
-		return s.ok(req.ID, s.initializeResult(req.Params)), false
-	case "ping":
-		return s.ok(req.ID, struct{}{}), false
-	case "tools/list":
-		return s.ok(req.ID, toolsList()), false
-	case "tools/call":
-		res, rerr := s.toolsCall(req.Params)
-		if rerr != nil {
-			return response{JSONRPC: "2.0", ID: req.ID, Error: rerr}, false
+	for _, def := range toolsList() {
+		schema, err := json.Marshal(def["inputSchema"])
+		if err != nil {
+			return nil, fmt.Errorf("tool %v: %w", def["name"], err)
 		}
-		return s.ok(req.ID, res), false
-	default:
-		return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32601, Message: "method not found: " + req.Method}}, false
+		name, okName := def["name"].(string)
+		desc, okDesc := def["description"].(string)
+		if !okName || !okDesc {
+			return nil, fmt.Errorf("tool %v: name and description must be strings", def["name"])
+		}
+		if err := ts.AddTool(mcpserver.Tool{Name: name, Description: desc, InputSchema: schema}, s.handle); err != nil {
+			return nil, err
+		}
 	}
+	return ts, nil
 }
 
-func (s *server) ok(id json.RawMessage, result any) response {
-	return response{JSONRPC: "2.0", ID: id, Result: result}
-}
-
-func (s *server) initializeResult(params json.RawMessage) any {
-	var p struct {
-		ProtocolVersion string `json:"protocolVersion"`
+// handle runs one tools/call. A tool failure is a result with isError set;
+// the protocol layer has already refused an unknown tool and arguments that
+// are not an object.
+func (s *server) handle(ctx context.Context, req *mcpserver.Request) (*mcpserver.Result, error) {
+	res := s.toolsCall(ctx, req.Name, req.Arguments)
+	out := &mcpserver.Result{IsError: res.IsError}
+	for _, c := range res.Content {
+		b, err := json.Marshal(c)
+		if err != nil {
+			return nil, err
+		}
+		out.Content = append(out.Content, b)
 	}
-	if len(params) > 0 {
-		// Malformed params leave the field empty, and the newest revision answers.
-		_ = json.Unmarshal(params, &p)
-	}
-	return map[string]any{
-		"protocolVersion": negotiateProtocolVersion(p.ProtocolVersion),
-		"capabilities":    map[string]any{"tools": map[string]any{}},
-		"serverInfo":      map[string]any{"name": serverName, "version": s.version},
-		"instructions":    Instructions,
-	}
+	return out, nil
 }

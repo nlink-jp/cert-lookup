@@ -207,18 +207,17 @@ func TestCacheServesTheRepeat(t *testing.T) {
 
 func TestMCPServesOverStdio(t *testing.T) {
 	sHits, _ := env(t, http.StatusOK)
-	in := strings.Join([]string{
-		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"lookup_certs","arguments":{"domains":["example.com"]}}}`,
-		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"cache_status","arguments":{}}}`,
-	}, "\n")
-	var out, errb bytes.Buffer
-	code := run([]string{"mcp"}, "t", strings.NewReader(in), &out, &errb)
-	if code != exitOK {
-		t.Fatalf("code %d stderr %s", code, errb.String())
+	cl := openMCP(t)
+	if name := cl.Server().Name; name != "cert-lookup" {
+		t.Fatalf("serverInfo.name = %q", name)
 	}
-	got := out.String()
-	for _, want := range []string{`"name":"cert-lookup"`, `related.example`, `single_host`, `daily`} {
+	lookup, isErr := callMCP(t, cl, "lookup_certs", map[string]any{"domains": []string{"example.com"}})
+	status, isErr2 := callMCP(t, cl, "cache_status", map[string]any{})
+	if isErr || isErr2 {
+		t.Fatalf("tool error: %s / %s", lookup, status)
+	}
+	got := lookup + status
+	for _, want := range []string{`related.example`, `single_host`, `daily`} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %s in %s", want, got)
 		}

@@ -1,10 +1,11 @@
 package mcp
 
 import (
-	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -73,12 +74,11 @@ func serve(t *testing.T, cfg *config.Config, lines ...string) []map[string]any {
 
 func serveWith(t *testing.T, o Options, lines ...string) []map[string]any {
 	t.Helper()
-	var out bytes.Buffer
-	if err := Serve(o, strings.NewReader(strings.Join(lines, "\n")), &out); err != nil {
-		t.Fatalf("Serve: %v", err)
-	}
+	out := serveOverClient(t, func(ctx context.Context, in io.Reader, w io.Writer) error {
+		return Serve(ctx, o, in, w)
+	}, strings.Join(lines, "\n"))
 	var resps []map[string]any
-	dec := json.NewDecoder(&out)
+	dec := json.NewDecoder(out)
 	for dec.More() {
 		var m map[string]any
 		if err := dec.Decode(&m); err != nil {
@@ -114,10 +114,10 @@ func errorCode(t *testing.T, text string) string {
 	return e.Code
 }
 
-func TestInitializeEchoesProtocolAndNamesTheServer(t *testing.T) {
+func TestInitializeNamesTheServer(t *testing.T) {
 	resps := serve(t, testConfig("", ""), `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`)
 	res := resps[0]["result"].(map[string]any)
-	if res["protocolVersion"] != "2024-11-05" || res["serverInfo"].(map[string]any)["name"] != "cert-lookup" {
+	if res["serverInfo"].(map[string]any)["name"] != "cert-lookup" {
 		t.Fatalf("initialize = %v", res)
 	}
 	if !strings.Contains(res["instructions"].(string), "get_usage") {
@@ -143,31 +143,13 @@ func TestGetUsageReturnsTheManual(t *testing.T) {
 	}
 }
 
-func TestUnknownToolIsAStructuredError(t *testing.T) {
-	text, isErr := toolText(t, serve(t, testConfig("", ""), callTool("check_ip", `{"ips":["x"]}`))[0])
-	if !isErr || errorCode(t, text) != CodeUnknownTool {
-		t.Fatalf("unknown tool: isErr=%v %s", isErr, text)
-	}
-}
-
-func TestNotificationGetsNoResponse(t *testing.T) {
-	resps := serve(t, testConfig("", ""),
-		`{"jsonrpc":"2.0","method":"notifications/initialized"}`,
-		`{"jsonrpc":"2.0","id":7,"method":"ping"}`)
-	if len(resps) != 1 {
-		t.Fatalf("responses = %d, want only the ping reply", len(resps))
-	}
-}
-
-func TestUnknownMethodIsRPCError(t *testing.T) {
-	if resps := serve(t, testConfig("", ""), `{"jsonrpc":"2.0","id":1,"method":"resources/list"}`); resps[0]["error"] == nil {
-		t.Fatalf("want a JSON-RPC error, got %v", resps[0])
-	}
-}
-
-func TestMalformedJSONReportsParseErrorAndStops(t *testing.T) {
-	if resps := serve(t, testConfig("", ""), `{not json`); len(resps) != 1 || resps[0]["error"] == nil {
-		t.Fatalf("want a single parse-error response, got %v", resps)
+// An unknown tool is the protocol module's to refuse (-32602); it no longer
+// reaches toolsCall as an isError result.
+func TestUnknownToolIsAProtocolError(t *testing.T) {
+	resps := serve(t, testConfig("", ""), callTool("check_ip", `{"ips":["x"]}`))
+	e, _ := resps[0]["error"].(map[string]any)
+	if e == nil || int(e["code"].(float64)) != -32602 {
+		t.Fatalf("unknown tool: %v, want -32602", resps[0])
 	}
 }
 
@@ -383,24 +365,11 @@ func TestCapHoldsEvenForHugeSummaries(t *testing.T) {
 	}
 }
 
-func TestInitializeNegotiatesProtocolVersion(t *testing.T) {
-	cases := []struct{ params, want string }{
-		{`{"protocolVersion":"2025-11-25"}`, "2025-11-25"},
-		{`{"protocolVersion":"2025-06-18"}`, "2025-06-18"},
-		{`{"protocolVersion":"2024-11-05"}`, "2024-11-05"},
-		// 2025-03-26 requires accepting JSON-RPC batches, which this server does not.
-		{`{"protocolVersion":"2025-03-26"}`, "2025-11-25"},
-		// A revision the server does not satisfy must not be echoed back.
-		{`{"protocolVersion":"2026-07-28"}`, "2025-11-25"},
-		{`{"protocolVersion":""}`, "2025-11-25"},
-		{`{}`, "2025-11-25"},
-		{`not json`, "2025-11-25"},
-		{``, "2025-11-25"},
-	}
-	for _, c := range cases {
-		res := (&server{}).initializeResult(json.RawMessage(c.params)).(map[string]any)
-		if got := res["protocolVersion"]; got != c.want {
-			t.Errorf("initialize %s: protocolVersion = %v, want %s", c.params, got, c.want)
-		}
-	}
+// ADR-030 §7: the server against the three probe clients (legacy only,
+// dual-era, modern only).
+func TestAgainstTheProbeClients(t *testing.T) {
+	o := Options{Config: testConfig("", ""), Engine: &fakeEngine{}, Version: "test"}
+	probeMatrix(t, func(ctx context.Context, in io.Reader, w io.Writer) error {
+		return Serve(ctx, o, in, w)
+	})
 }

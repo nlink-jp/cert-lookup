@@ -5,6 +5,7 @@ package app
 
 import (
 	"bufio"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -266,7 +267,7 @@ func runMCP(args []string, version string, stdin io.Reader, stdout, stderr io.Wr
 		vc := &validin.Client{HTTP: keyClient(cfg), BaseURL: cfg.ValidinBaseURL, APIKey: cfg.ValidinKey, UserAgent: "cert-lookup/" + version}
 		opts.ValidinQuota = vc.Usage
 	}
-	if err := mcp.Serve(opts, stdin, stdout); err != nil {
+	if err := mcp.Serve(context.Background(), opts, stdin, stdout); err != nil {
 		fmt.Fprintf(stderr, "error: mcp: %v\n", err)
 		return exitError
 	}
