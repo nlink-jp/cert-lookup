@@ -40,6 +40,7 @@ Follow the common policy (nlink-jp/mcp's `docs/en/server-migration.md`, v0.3.0) 
 ## Defects found (each fixed in its own fix commit)
 
 - SIGINT or SIGTERM ended the MCP server by killing the process; a signal now ends it through its context, so its cleanup runs.
+- Found in review: the module's logger wrote to os.Stderr although the `mcp` subcommand is handed its stderr. `Options.Log` carries it now (nil: os.Stderr).
 
 ## Consequences
 

@@ -39,6 +39,7 @@
 ## 見つけた不具合（それぞれ別の fix コミットで直した）
 
 - `mcp` サブコマンドがシグナルを受けていなかったため、SIGINT・SIGTERM でプロセスがそのまま殺され、後片づけが走らなかった。シグナルで `Serve` の ctx を取り消すようにした。
+- レビューで見つけたもの: `mcp` サブコマンドは stderr を渡されるのに、モジュールのログは os.Stderr に書いていた。`Options.Log` で渡すようにした（nil なら os.Stderr）。
 
 ## Consequences
 
